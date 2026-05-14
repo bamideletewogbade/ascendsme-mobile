@@ -29,7 +29,8 @@ class SignUpScreen extends StatefulWidget {
 class _SignUpScreenState extends State<SignUpScreen> {
   int _step = 0;
 
-  // Step 1 — Business
+  // Step 1 — Personal + Business
+  final _fullNameCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   String _industry = _kIndustries.first;
@@ -45,6 +46,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   @override
   void dispose() {
+    _fullNameCtrl.dispose();
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
     _emailCtrl.dispose();
@@ -54,6 +56,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }
 
   void _nextStep() {
+    if (_fullNameCtrl.text.trim().isEmpty) {
+      setState(() => _localError = 'Your name is required.');
+      return;
+    }
     if (_nameCtrl.text.trim().isEmpty) {
       setState(() => _localError = 'Business name is required.');
       return;
@@ -88,6 +94,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     final ok = await state.signUp(
       email: _emailCtrl.text.trim(),
       password: _pwCtrl.text,
+      fullName: _fullNameCtrl.text.trim(),
       businessName: _nameCtrl.text.trim(),
       phone: _phoneCtrl.text.trim(),
       industry: _industry,
@@ -182,6 +189,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   child: _step == 0
                       ? _BusinessStep(
                           key: const ValueKey(0),
+                          fullNameCtrl: _fullNameCtrl,
                           nameCtrl: _nameCtrl,
                           phoneCtrl: _phoneCtrl,
                           industry: _industry,
@@ -223,6 +231,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
 // ── Step 1: Business info ─────────────────────────────────────────────────────
 
 class _BusinessStep extends StatelessWidget {
+  final TextEditingController fullNameCtrl;
   final TextEditingController nameCtrl;
   final TextEditingController phoneCtrl;
   final String industry;
@@ -232,6 +241,7 @@ class _BusinessStep extends StatelessWidget {
 
   const _BusinessStep({
     super.key,
+    required this.fullNameCtrl,
     required this.nameCtrl,
     required this.phoneCtrl,
     required this.industry,
@@ -246,12 +256,20 @@ class _BusinessStep extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Your business', style: AppType.display(size: 28, color: c.text)),
+        Text('Your details', style: AppType.display(size: 28, color: c.text)),
         const SizedBox(height: 6),
-        Text("Let's get your business set up on AscendSME.",
+        Text("Tell us a bit about you and your business.",
             style: AppType.body(size: 14, color: c.textMuted)),
         const SizedBox(height: 28),
 
+        _SignUpField(
+          label: 'Your name',
+          controller: fullNameCtrl,
+          icon: Icons.person_outline,
+          hint: 'e.g. Adwoa Mensah',
+          keyboardType: TextInputType.name,
+        ),
+        const SizedBox(height: 16),
         _SignUpField(
           label: 'Business name',
           controller: nameCtrl,

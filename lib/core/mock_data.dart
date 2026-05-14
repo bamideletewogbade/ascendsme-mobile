@@ -138,17 +138,48 @@ const kInitialQuests = [
 ];
 
 // ─── AI system context ────────────────────────
-String buildBizContext() => '''You are Ascend AI, an in-app advisor inside the AscendSME mobile app for Ghanaian SMEs.
-The user is Adwoa Mensah, owner of "${kBusiness.name}" (${kBusiness.industry}, ${kBusiness.city}).
-Sustainability score: ${kBusiness.sustainabilityScore}/100 (${kBusiness.tier}).
-Monthly revenue (May to date): GHS ${kBusiness.monthlyRevenue.toString()}.
-Monthly expenses: GHS ${kBusiness.monthlyExpenses.toString()}.
-Outstanding invoices: GHS ${kBusiness.outstandingInvoices.toString()} (3 invoices, 1 overdue 12 days).
-Pipeline: GHS ${kBusiness.pipeline.toString()}.
-Top recommendations: Log May expenses · Follow up on 3 unpaid invoices · Apply to Stanbic Women in Business (up to GHS 80,000).
+/// Build the system prompt for Ask Ascend. Pass the live `Business` and
+/// `Financials` from AppState; both default to mock/empty so the AI still has
+/// something coherent to talk about pre-login or during development.
+///
+/// Financial lines are only included when non-zero — for a freshly signed-up
+/// business with no receipts logged, we'd rather omit "Monthly revenue: GHS 0"
+/// than have the AI fixate on it.
+String buildBizContext([Business? biz, Financials? fin]) {
+  final b = biz ?? kBusiness;
+  final f = fin ?? Financials.empty;
+  final lines = <String>[
+    'You are Ascend AI, an in-app advisor inside the AscendSME mobile app for Ghanaian SMEs.',
+    'The user owns "${b.name}" (${b.industry}${b.city != '—' ? ', ${b.city}' : ''}).',
+    'Sustainability score: ${b.sustainabilityScore}/100 (${b.tier}).',
+  ];
 
-When responding:
-- Be concise. Mobile-friendly. Plain English. No markdown headers or bullets unless asked.
-- Use GHS for currency. Reference the user's actual numbers.
-- Friendly, action-oriented, like a smart business coach.
-- Never invent features. Stick to: invoicing, bookings, customers/CRM, finance, inventory, verification, funding, marketplace.''';
+  if (f.revenueThisMonth > 0) {
+    lines.add('Revenue this month: GHS ${f.revenueThisMonth}.');
+  }
+  if (f.expensesThisMonth > 0) {
+    lines.add('Expenses this month: GHS ${f.expensesThisMonth}.');
+  }
+  if (f.outstanding > 0) {
+    final overdueClause = f.outstandingOverdueCount > 0
+        ? ' (${f.outstandingOverdueCount} overdue)'
+        : '';
+    lines.add(
+        'Outstanding invoices: GHS ${f.outstanding} across ${f.outstandingCount} invoices$overdueClause.');
+  }
+  if (f.pipeline > 0) {
+    lines.add('Pipeline: GHS ${f.pipeline}.');
+  }
+
+  lines.addAll([
+    '',
+    'When responding:',
+    '- Be concise. Mobile-friendly. Plain English. No markdown headers or bullets unless asked.',
+    '- Use GHS for currency. Reference the user\'s actual numbers when you have them.',
+    '- Friendly, action-oriented, like a smart business coach.',
+    '- Never invent features. Stick to: invoicing, bookings, customers/CRM, finance, inventory, verification, funding, marketplace.',
+    '- If you don\'t have a number, say so honestly and ask the user to log the relevant data.',
+  ]);
+
+  return lines.join('\n');
+}

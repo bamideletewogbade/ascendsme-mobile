@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../services/ai_service.dart';
+import '../../services/supabase_service.dart';
+import '../../state/app_state.dart';
 
 class NewInvoiceSheet extends StatefulWidget {
   final VoidCallback? onSent;
@@ -18,6 +21,11 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
   final _descCtrl = TextEditingController();
   final _amountCtrl = TextEditingController();
   bool _aiParsing = false;
+
+  // Send state
+  bool _sending = false;
+  String? _sendError;
+  String? _createdInvoiceNumber;
 
   @override
   void dispose() {
@@ -49,6 +57,91 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
     }
   }
 
+  /// Parse the amount text into a num. Strips commas and whitespace.
+  /// Returns null if the field is empty or unparseable.
+  num? _parseAmount() {
+    final raw = _amountCtrl.text.trim().replaceAll(',', '');
+    if (raw.isEmpty) return null;
+    return num.tryParse(raw);
+  }
+
+  Future<void> _sendInvoice() async {
+    setState(() {
+      _sending = true;
+      _sendError = null;
+    });
+
+    final customer = _customerCtrl.text.trim();
+    final amount = _parseAmount();
+    final appState = context.read<AppState>();
+    final businessId = appState.business.id;
+
+    // Validation — defensive; step 0 already collected these.
+    if (customer.isEmpty) {
+      setState(() {
+        _sending = false;
+        _sendError = 'Customer name is required.';
+      });
+      return;
+    }
+    if (amount == null || amount <= 0) {
+      setState(() {
+        _sending = false;
+        _sendError = 'Enter a valid amount greater than 0.';
+      });
+      return;
+    }
+    if (businessId == null) {
+      setState(() {
+        _sending = false;
+        _sendError =
+            'Your business profile isn\'t set up yet. Please complete signup first.';
+      });
+      return;
+    }
+
+    try {
+      final row = await SupabaseService.createInvoice(
+        businessId: businessId,
+        customerName: customer,
+        totalAmount: amount,
+        description: _descCtrl.text.trim(),
+      );
+
+      if (!mounted) return;
+
+      // Refresh Outstanding tile + invoices list on the home screen
+      // (fire-and-forget — UI updates when these resolve).
+      // ignore: unawaited_futures
+      appState.loadFinancials();
+      // ignore: unawaited_futures
+      appState.loadInvoices();
+      widget.onSent?.call();
+
+      setState(() {
+        _sending = false;
+        _createdInvoiceNumber = row['invoice_number'] as String?;
+        _step = 2;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _sending = false;
+        _sendError = _friendlyError(e);
+      });
+    }
+  }
+
+  String _friendlyError(Object e) {
+    final msg = e.toString();
+    // Trim Supabase's verbose "PostgrestException(message: ..., code: ..., …)"
+    // to just the message text so the user isn't confronted with raw stack.
+    final match = RegExp(r'message:\s*([^,)]+)').firstMatch(msg);
+    final extracted = match?.group(1)?.trim();
+    if (extracted != null && extracted.isNotEmpty) return extracted;
+    return 'Could not save the invoice. Check your connection and try again.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -72,13 +165,20 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
             customer: _customerCtrl.text,
             amount: _amountCtrl.text,
             desc: _descCtrl.text,
-            onBack: () => setState(() => _step = 0),
-            onSend: () {
-              widget.onSent?.call();
-              setState(() => _step = 2);
-            },
+            sending: _sending,
+            error: _sendError,
+            onBack: _sending
+                ? null
+                : () => setState(() {
+                      _step = 0;
+                      _sendError = null;
+                    }),
+            onSend: _sending ? null : _sendInvoice,
           ),
-        _ => _SentStep(onClose: () => Navigator.pop(context)),
+        _ => _SentStep(
+            invoiceNumber: _createdInvoiceNumber,
+            onClose: () => Navigator.pop(context),
+          ),
       },
     );
   }
@@ -221,12 +321,16 @@ class _DetailsStep extends StatelessWidget {
 // ── Step 2: Preview ───────────────────────────────────────────────────────────
 class _PreviewStep extends StatelessWidget {
   final String customer, amount, desc;
-  final VoidCallback onBack, onSend;
+  final bool sending;
+  final String? error;
+  final VoidCallback? onBack, onSend;
 
   const _PreviewStep({
     required this.customer,
     required this.amount,
     required this.desc,
+    required this.sending,
+    required this.error,
     required this.onBack,
     required this.onSend,
   });
@@ -245,7 +349,9 @@ class _PreviewStep extends StatelessWidget {
             children: [
               GestureDetector(
                 onTap: onBack,
-                child: Icon(Icons.arrow_back, size: 20, color: c.text),
+                child: Icon(Icons.arrow_back,
+                    size: 20,
+                    color: onBack == null ? c.textFaint : c.text),
               ),
               const SizedBox(width: 12),
               Text('Preview invoice',
@@ -269,9 +375,9 @@ class _PreviewStep extends StatelessWidget {
                         Text('INVOICE',
                             style:
                                 AppType.label(size: 10, color: c.textMuted)),
-                        Text('INV-0143',
+                        Text('Number assigned on save',
                             style:
-                                AppType.mono(size: 14, color: c.text)),
+                                AppType.body(size: 11, color: c.textFaint)),
                       ],
                     ),
                     AppPill('Draft',
@@ -305,11 +411,52 @@ class _PreviewStep extends StatelessWidget {
             ),
           ),
         ),
+
+        if (error != null) ...[
+          const SizedBox(height: 16),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: c.rose.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: c.rose.withValues(alpha: 0.25)),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.error_outline_rounded, size: 16, color: c.rose),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(error!,
+                        style: AppType.body(size: 13, color: c.rose)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+
         const SizedBox(height: 20),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: AppBtn('Send invoice',
-              full: true, icon: 'north_east', onTap: onSend),
+          child: sending
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor: AlwaysStoppedAnimation(c.teal),
+                      ),
+                    ),
+                  ),
+                )
+              : AppBtn('Send invoice',
+                  full: true, icon: 'north_east', onTap: onSend),
         ),
       ],
     );
@@ -318,9 +465,10 @@ class _PreviewStep extends StatelessWidget {
 
 // ── Step 3: Sent ──────────────────────────────────────────────────────────────
 class _SentStep extends StatelessWidget {
+  final String? invoiceNumber;
   final VoidCallback onClose;
 
-  const _SentStep({required this.onClose});
+  const _SentStep({required this.invoiceNumber, required this.onClose});
 
   @override
   Widget build(BuildContext context) {
@@ -339,11 +487,24 @@ class _SentStep extends StatelessWidget {
             child: Icon(Icons.check, size: 32, color: c.green),
           ),
           const SizedBox(height: 16),
-          Text('Invoice sent!',
+          Text('Invoice saved',
               style: AppType.heading(size: 22, color: c.text)),
           const SizedBox(height: 8),
+          if (invoiceNumber != null) ...[
+            Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: c.bgInset,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(invoiceNumber!,
+                  style: AppType.mono(size: 13, color: c.text)),
+            ),
+            const SizedBox(height: 12),
+          ],
           Text(
-            'The customer will receive a payment link\nvia WhatsApp and email.',
+            'Added to your Outstanding list.\nShare with your customer via WhatsApp or email.',
             style: AppType.body(size: 13, color: c.textMuted),
             textAlign: TextAlign.center,
           ),

@@ -48,22 +48,26 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final state = context.watch<AppState>();
+    final business = state.business;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: Row(
         children: [
           GestureDetector(
             onTap: onOpenDrawer,
-            child: TierRing(score: state.score, initials: kBusiness.initials, size: 40),
+            child: TierRing(score: state.score, initials: business.initials, size: 40),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('$_greeting, Adwoa',
+                Text(
+                    state.firstName != null
+                        ? '$_greeting, ${state.firstName}'
+                        : _greeting,
                     style: AppType.heading(size: 15, color: c.text)),
-                Text(kBusiness.name,
+                Text(business.name,
                     style: AppType.body(size: 11.5, color: c.textMuted)),
               ],
             ),
@@ -188,7 +192,7 @@ class _SustainabilityDial extends StatelessWidget {
                 Text(tier.label,
                     style: AppType.body(size: 13, weight: FontWeight.w600, color: c.text)),
                 const SizedBox(width: 8),
-                AppPill(kBusiness.tier, tone: PillTone.teal, small: true),
+                AppPill(context.watch<AppState>().business.tier, tone: PillTone.teal, small: true),
               ],
             ),
             if (next != null) ...[
@@ -619,19 +623,28 @@ class _CashFlow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final state = context.watch<AppState>();
+    final f = state.financials;
+    final loading = state.financialsLoading;
+    final outstandingSub = _outstandingSubtitle(f);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionHeader('Cash flow — May'),
+          SectionHeader('Cash flow — ${currentMonthShort()}'),
           Row(
             children: [
               Expanded(
                 child: AppCard(
                   padding: const EdgeInsets.all(14),
                   child: _CashTile(
-                      label: 'Revenue', amount: 'GHS 18,420', change: '+12%', up: true),
+                    label: 'Revenue',
+                    amount: formatGHS(f.revenueThisMonth),
+                    changePct: f.revenueChangePctVsLastMonth,
+                    loading: loading,
+                  ),
                 ),
               ),
               const SizedBox(width: 10),
@@ -639,7 +652,13 @@ class _CashFlow extends StatelessWidget {
                 child: AppCard(
                   padding: const EdgeInsets.all(14),
                   child: _CashTile(
-                      label: 'Expenses', amount: 'GHS 9,840', change: '+3%', up: false),
+                    label: 'Expenses',
+                    amount: formatGHS(f.expensesThisMonth),
+                    changePct: f.expensesChangePctVsLastMonth,
+                    // For expenses, "down vs. last month" is the good direction.
+                    inverted: true,
+                    loading: loading,
+                  ),
                 ),
               ),
             ],
@@ -656,14 +675,15 @@ class _CashFlow extends StatelessWidget {
                       Text('Outstanding',
                           style: AppType.body(size: 11.5, color: c.textMuted)),
                       const SizedBox(height: 4),
-                      Text('GHS 4,280',
+                      Text(formatGHS(f.outstanding),
                           style: AppType.heading(size: 18, color: c.text)),
-                      Text('3 invoices · 1 overdue',
+                      Text(outstandingSub,
                           style: AppType.body(size: 11.5, color: c.textMuted)),
                     ],
                   ),
                 ),
-                AppPill('Follow up', tone: PillTone.rose, small: true),
+                if (f.outstandingOverdueCount > 0)
+                  AppPill('Follow up', tone: PillTone.rose, small: true),
               ],
             ),
           ),
@@ -671,21 +691,41 @@ class _CashFlow extends StatelessWidget {
       ),
     );
   }
+
+  static String _outstandingSubtitle(Financials f) {
+    if (f.outstandingCount == 0) return 'No open invoices';
+    final invoiceWord = f.outstandingCount == 1 ? 'invoice' : 'invoices';
+    if (f.outstandingOverdueCount == 0) {
+      return '${f.outstandingCount} $invoiceWord · all on track';
+    }
+    return '${f.outstandingCount} $invoiceWord · ${f.outstandingOverdueCount} overdue';
+  }
 }
 
 class _CashTile extends StatelessWidget {
-  final String label, amount, change;
-  final bool up;
+  final String label, amount;
+  final double? changePct;
+  final bool inverted;
+  final bool loading;
 
-  const _CashTile(
-      {required this.label,
-      required this.amount,
-      required this.change,
-      required this.up});
+  const _CashTile({
+    required this.label,
+    required this.amount,
+    required this.changePct,
+    this.inverted = false,
+    this.loading = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final changeText = formatChangePct(changePct);
+    // Up = green when not inverted (revenue going up is good).
+    // Up = red when inverted (expenses going up is bad).
+    final isPositive = (changePct ?? 0) > 0;
+    final isGood = inverted ? !isPositive : isPositive;
+    final showChange = changeText != null && !loading;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -693,15 +733,23 @@ class _CashTile extends StatelessWidget {
         const SizedBox(height: 4),
         Text(amount, style: AppType.heading(size: 16, color: c.text)),
         const SizedBox(height: 4),
-        Row(
-          children: [
-            Icon(up ? Icons.trending_up : Icons.trending_down,
-                size: 13, color: up ? c.green : c.rose),
-            const SizedBox(width: 3),
-            Text(change,
-                style: AppType.body(size: 11, color: up ? c.green : c.rose)),
-          ],
-        ),
+        if (showChange)
+          Row(
+            children: [
+              Icon(isPositive ? Icons.trending_up : Icons.trending_down,
+                  size: 13, color: isGood ? c.green : c.rose),
+              const SizedBox(width: 3),
+              Text(changeText,
+                  style: AppType.body(
+                      size: 11, color: isGood ? c.green : c.rose)),
+            ],
+          )
+        else if (loading)
+          Text('Loading…',
+              style: AppType.body(size: 11, color: c.textFaint))
+        else
+          Text('No prior month',
+              style: AppType.body(size: 11, color: c.textFaint)),
       ],
     );
   }
@@ -716,10 +764,10 @@ class _InvoiceRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final (tone, label) = switch (invoice.status) {
-      'paid'    => (PillTone.green, 'Paid'),
+      'paid' => (PillTone.green, 'Paid'),
       'overdue' => (PillTone.rose, 'Overdue'),
-      'sent'    => (PillTone.orange, 'Sent'),
-      _         => (PillTone.neutral, 'Draft'),
+      'pending' || 'sent' => (PillTone.orange, 'Pending'),
+      _ => (PillTone.neutral, 'Draft'),
     };
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -750,6 +798,27 @@ class _InvoiceRow extends StatelessWidget {
       ),
     );
   }
+}
+
+// Helper for the Cards-layout invoicing card — emits real invoice rows when a
+// signed-in business has them, falls back to a friendly empty state otherwise.
+List<Widget> _buildRecentInvoices(BuildContext context, AppState state) {
+  final c = context.colors;
+  final invoices = state.recentInvoices(count: 3);
+  if (invoices.isEmpty) {
+    return [
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          state.invoicesLoading
+              ? 'Loading invoices…'
+              : 'No invoices yet — tap below to send your first.',
+          style: AppType.body(size: 12, color: c.textMuted),
+        ),
+      ),
+    ];
+  }
+  return invoices.map((inv) => _InvoiceRow(invoice: inv)).toList();
 }
 
 // ── Score layout ──────────────────────────────────────────────────────────────
@@ -875,7 +944,7 @@ class _CardsLayout extends StatelessWidget {
               child: Row(
                 children: [
                   TierRing(
-                      score: state.score, initials: kBusiness.initials, size: 56),
+                      score: state.score, initials: state.business.initials, size: 56),
                   const SizedBox(width: 16),
                   Expanded(
                     child: Column(
@@ -929,16 +998,17 @@ class _CardsLayout extends StatelessWidget {
                         children: [
                           Text('Invoicing',
                               style: AppType.heading(size: 15, color: c.text)),
-                          Text('GHS 4,280 outstanding',
+                          Text(
+                              state.financials.outstanding > 0
+                                  ? '${formatGHS(state.financials.outstanding)} outstanding'
+                                  : 'No open invoices',
                               style: AppType.body(size: 12, color: c.textMuted)),
                         ],
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
-                  ...kInvoices
-                      .take(3)
-                      .map((inv) => _InvoiceRow(invoice: inv)),
+                  ..._buildRecentInvoices(context, state),
                   const SizedBox(height: 8),
                   AppBtn('New invoice',
                       icon: 'add',

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
-import '../../core/mock_data.dart';
 import '../../state/app_state.dart';
 
 class ProfileDrawer extends StatelessWidget {
@@ -91,15 +90,15 @@ class _DrawerContent extends StatelessWidget {
             children: [
               TierRing(
                   score: state.score,
-                  initials: kBusiness.initials,
+                  initials: state.business.initials,
                   size: 54),
               const SizedBox(height: 12),
-              Text(kBusiness.name,
+              Text(state.business.name,
                   style: AppType.heading(size: 18, color: c.text)),
-              Text(kBusiness.handle,
+              Text(state.business.handle,
                   style: AppType.body(size: 13, color: c.textMuted)),
               const SizedBox(height: 8),
-              AppPill(kBusiness.tier, tone: PillTone.teal),
+              AppPill(state.business.tier, tone: PillTone.teal),
             ],
           ),
         ),

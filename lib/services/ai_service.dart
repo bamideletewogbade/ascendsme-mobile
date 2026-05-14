@@ -2,14 +2,15 @@ import 'dart:convert';
 import 'package:google_generative_ai/google_generative_ai.dart';
 import 'package:http/http.dart' as http;
 import '../config.dart';
+import '../core/models.dart';
 import '../core/mock_data.dart';
 
 // ─────────────────────────────────────────────
-// AIService — Gemini first-class, OpenRouter/Llama fallback.
+// AIService — Gemini first, Groq for fast Llama, OpenRouter as fallback.
 // Switch models at runtime via AIService.currentModel.
 // ─────────────────────────────────────────────
 class AIService {
-  static AIModel _currentModel = AIModel.geminiFlash;
+  static AIModel _currentModel = AIModel.groqLlama33;
 
   static AIModel get currentModel => _currentModel;
 
@@ -18,12 +19,17 @@ class AIService {
   }
 
   /// Send a prompt with business context. Returns the AI response text.
+  /// Pass `business` and `financials` to ground the AI in the real signed-in
+  /// profile; omit them to use mock fallbacks (useful from places without
+  /// AppState).
   static Future<String> ask(
     String userPrompt, {
     int maxSentences = 3,
     String? extraContext,
+    Business? business,
+    Financials? financials,
   }) async {
-    final ctx = extraContext ?? buildBizContext();
+    final ctx = extraContext ?? buildBizContext(business, financials);
     final full =
         '$ctx\n\nUser asks: $userPrompt\n\nRespond in at most $maxSentences short sentences. No markdown formatting.';
 
@@ -31,6 +37,8 @@ class AIService {
       switch (_currentModel.provider) {
         case AIProvider.gemini:
           return await _gemini(full);
+        case AIProvider.groq:
+          return await _groq(full);
         case AIProvider.openRouter:
           return await _openRouter(full);
       }
@@ -56,28 +64,59 @@ class AIService {
     return (response.text ?? '').trim();
   }
 
+  // ── Groq (LPU inference — fast, OpenAI-compatible) ─────────────────────
+  static Future<String> _groq(String prompt) async {
+    if (AppConfig.groqApiKey.isEmpty) {
+      return '(Add your Groq API key in lib/config.dart · Free at console.groq.com)';
+    }
+    final response = await http
+        .post(
+          Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
+          headers: {
+            'Authorization': 'Bearer ${AppConfig.groqApiKey}',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'model': _currentModel.id,
+            'messages': [
+              {'role': 'user', 'content': prompt}
+            ],
+            'max_tokens': 256,
+            'temperature': 0.7,
+          }),
+        )
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return ((data['choices'][0]['message']['content'] as String?) ?? '').trim();
+    }
+    throw Exception('Groq ${response.statusCode}: ${response.body}');
+  }
+
   // ── OpenRouter (Llama / any free model) ────
   static Future<String> _openRouter(String prompt) async {
     if (AppConfig.openRouterApiKey.isEmpty) {
       return '(Add your OpenRouter API key in lib/config.dart · Free at openrouter.ai)';
     }
-    final response = await http.post(
-      Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
-      headers: {
-        'Authorization': 'Bearer ${AppConfig.openRouterApiKey}',
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'https://ascendsme.app',
-        'X-Title': 'AscendSME Mobile',
-      },
-      body: jsonEncode({
-        'model': _currentModel.id,
-        'messages': [
-          {'role': 'user', 'content': prompt}
-        ],
-        'max_tokens': 256,
-        'temperature': 0.7,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
+          headers: {
+            'Authorization': 'Bearer ${AppConfig.openRouterApiKey}',
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://ascendsme.app',
+            'X-Title': 'AscendSME Mobile',
+          },
+          body: jsonEncode({
+            'model': _currentModel.id,
+            'messages': [
+              {'role': 'user', 'content': prompt}
+            ],
+            'max_tokens': 256,
+            'temperature': 0.7,
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
       return ((data['choices'][0]['message']['content'] as String?) ?? '').trim();
@@ -94,37 +133,67 @@ No prose, no markdown, just the JSON.''';
 
     try {
       String result;
-      if (_currentModel.provider == AIProvider.gemini) {
-        if (AppConfig.geminiApiKey.isEmpty) return null;
-        final model = GenerativeModel(
-          model: _currentModel.id,
-          apiKey: AppConfig.geminiApiKey,
-          generationConfig: GenerationConfig(maxOutputTokens: 60, temperature: 0),
-        );
-        final resp = await model.generateContent(
-            [Content.text('$systemPrompt\n\nUser: $description')]);
-        result = resp.text ?? '';
-      } else {
-        if (AppConfig.openRouterApiKey.isEmpty) return null;
-        final resp = await http.post(
-          Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
-          headers: {
-            'Authorization': 'Bearer ${AppConfig.openRouterApiKey}',
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode({
-            'model': _currentModel.id,
-            'messages': [
-              {'role': 'system', 'content': systemPrompt},
-              {'role': 'user', 'content': description},
-            ],
-            'max_tokens': 60,
-            'temperature': 0,
-          }),
-        );
-        result = resp.statusCode == 200
-            ? (jsonDecode(resp.body)['choices'][0]['message']['content'] ?? '')
-            : '';
+      switch (_currentModel.provider) {
+        case AIProvider.gemini:
+          if (AppConfig.geminiApiKey.isEmpty) return null;
+          final model = GenerativeModel(
+            model: _currentModel.id,
+            apiKey: AppConfig.geminiApiKey,
+            generationConfig:
+                GenerationConfig(maxOutputTokens: 60, temperature: 0),
+          );
+          final resp = await model.generateContent(
+              [Content.text('$systemPrompt\n\nUser: $description')]);
+          result = resp.text ?? '';
+          break;
+        case AIProvider.groq:
+          if (AppConfig.groqApiKey.isEmpty) return null;
+          final resp = await http
+              .post(
+                Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
+                headers: {
+                  'Authorization': 'Bearer ${AppConfig.groqApiKey}',
+                  'Content-Type': 'application/json',
+                },
+                body: jsonEncode({
+                  'model': _currentModel.id,
+                  'messages': [
+                    {'role': 'system', 'content': systemPrompt},
+                    {'role': 'user', 'content': description},
+                  ],
+                  'max_tokens': 60,
+                  'temperature': 0,
+                }),
+              )
+              .timeout(const Duration(seconds: 15));
+          result = resp.statusCode == 200
+              ? (jsonDecode(resp.body)['choices'][0]['message']['content'] ?? '')
+              : '';
+          break;
+        case AIProvider.openRouter:
+          if (AppConfig.openRouterApiKey.isEmpty) return null;
+          final resp = await http
+              .post(
+                Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
+                headers: {
+                  'Authorization': 'Bearer ${AppConfig.openRouterApiKey}',
+                  'Content-Type': 'application/json',
+                },
+                body: jsonEncode({
+                  'model': _currentModel.id,
+                  'messages': [
+                    {'role': 'system', 'content': systemPrompt},
+                    {'role': 'user', 'content': description},
+                  ],
+                  'max_tokens': 60,
+                  'temperature': 0,
+                }),
+              )
+              .timeout(const Duration(seconds: 20));
+          result = resp.statusCode == 200
+              ? (jsonDecode(resp.body)['choices'][0]['message']['content'] ?? '')
+              : '';
+          break;
       }
       final match = RegExp(r'\{[\s\S]*\}').firstMatch(result);
       if (match != null) {

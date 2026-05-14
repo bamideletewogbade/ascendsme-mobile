@@ -47,13 +47,19 @@ class _AskAscendSheetState extends State<AskAscendSheet> {
   Future<void> _send(String text) async {
     final prompt = text.trim();
     if (prompt.isEmpty || _loading) return;
+    // Capture the live business profile + financials so the AI grounds its
+    // answer in the signed-in user's actual numbers (not the mock).
+    final appState = context.read<AppState>();
+    final business = appState.business;
+    final financials = appState.financials;
     setState(() {
       _messages.add(_Msg(text: prompt, fromUser: true));
       _loading = true;
     });
     _ctrl.clear();
     _scrollToBottom();
-    final reply = await AIService.ask(prompt, maxSentences: 5);
+    final reply = await AIService.ask(prompt,
+        maxSentences: 5, business: business, financials: financials);
     if (mounted) {
       setState(() {
         _messages.add(_Msg(text: reply, fromUser: false));
@@ -253,7 +259,7 @@ class _AskAscendSheetState extends State<AskAscendSheet> {
                 style: AppType.heading(size: 18, color: c.text)),
             const SizedBox(height: 8),
             Text(
-              'Gemini models use your free Google AI Studio quota.\nOpenRouter models are free via openrouter.ai.',
+              'Gemini: free Google AI Studio quota.\nGroq: fast LPU inference, free tier.\nOpenRouter: broad catalogue, free tier.',
               style: AppType.body(size: 12, color: c.textMuted),
             ),
             const SizedBox(height: 16),
@@ -289,9 +295,14 @@ class _AskAscendSheetState extends State<AskAscendSheet> {
                                     weight: FontWeight.w600,
                                     color: c.text)),
                             Text(
-                              model.provider == AIProvider.gemini
-                                  ? 'Google Gemini · 1,500 free req/day'
-                                  : 'OpenRouter · Free tier',
+                              switch (model.provider) {
+                                AIProvider.gemini =>
+                                  'Google Gemini · 1,500 free req/day',
+                                AIProvider.groq =>
+                                  'Groq · Fast LPU inference',
+                                AIProvider.openRouter =>
+                                  'OpenRouter · Free tier',
+                              },
                               style: AppType.body(
                                   size: 11.5, color: c.textMuted),
                             ),

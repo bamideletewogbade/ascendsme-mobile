@@ -5,6 +5,7 @@ import '../core/widgets/common.dart';
 import '../state/app_state.dart';
 import 'home_screen.dart';
 import 'tools_screen.dart';
+import 'tools/invoices_screen.dart';
 import 'verify_screen.dart';
 import 'help_screen.dart';
 import 'sheets/profile_drawer.dart';
@@ -69,8 +70,13 @@ class _AppShellBodyState extends State<_AppShellBody> {
   }
 
   void _pushTool(BuildContext ctx, String id) {
-    Navigator.push(ctx,
-        MaterialPageRoute(builder: (_) => ToolStubScreen(toolId: id)));
+    // Route known real tools to their dedicated screens; everything else
+    // falls back to the "Coming soon" stub.
+    final Widget screen = switch (id) {
+      'invoicing' => const InvoicesScreen(),
+      _ => ToolStubScreen(toolId: id),
+    };
+    Navigator.push(ctx, MaterialPageRoute(builder: (_) => screen));
   }
 
   @override

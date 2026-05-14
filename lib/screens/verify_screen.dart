@@ -13,6 +13,7 @@ class VerifyScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final state = context.watch<AppState>();
+    final business = state.business;
     final tier = getTier(state.score);
     final next = getNextTier(state.score);
 
@@ -38,22 +39,22 @@ class VerifyScreen extends StatelessWidget {
                     children: [
                       TierRing(
                           score: state.score,
-                          initials: kBusiness.initials,
+                          initials: business.initials,
                           size: 56),
                       const SizedBox(width: 16),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(kBusiness.name,
+                            Text(business.name,
                                 style: AppType.heading(size: 16, color: c.text)),
-                            Text(kBusiness.handle,
+                            Text(business.handle,
                                 style:
                                     AppType.body(size: 12, color: c.textMuted)),
                             const SizedBox(height: 6),
                             Row(
                               children: [
-                                if (kBusiness.verified)
+                                if (business.verified)
                                   AppPill('Verified',
                                       tone: PillTone.teal,
                                       icon: 'check_circle'),
@@ -79,7 +80,7 @@ class VerifyScreen extends StatelessWidget {
                           margin: const EdgeInsets.symmetric(horizontal: 12)),
                       _StatBox(
                           label: 'Credit score',
-                          value: '${kBusiness.creditScore}',
+                          value: '${business.creditScore}',
                           sub: '/ 850'),
                       Container(
                           width: 1, height: 36, color: c.border,
