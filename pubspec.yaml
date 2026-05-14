@@ -1,0 +1,27 @@
+name: ascendsme_mobile
+description: "AscendSME — Business management platform for Ghanaian SMEs"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.2.1
+  provider: ^6.1.2
+  google_generative_ai: ^0.4.6
+  http: ^1.2.2
+  flutter_animate: ^4.5.0
+  shared_preferences: ^2.4.0
+  supabase_flutter: ^2.8.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
