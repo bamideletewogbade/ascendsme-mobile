@@ -88,6 +88,11 @@ class _AppShellBodyState extends State<_AppShellBody> {
     return Scaffold(
       backgroundColor: c.bg,
       body: Stack(
+        // Without this, the Stack sizes itself to the largest non-positioned
+        // child. ProfileDrawer returns SizedBox.shrink() when closed, so the
+        // whole Stack collapses to 0x0 and every Positioned.fill below renders
+        // into nothing — symptom: blank screen after auth.
+        fit: StackFit.expand,
         children: [
           // ── Main content ───────────────────
           Positioned.fill(

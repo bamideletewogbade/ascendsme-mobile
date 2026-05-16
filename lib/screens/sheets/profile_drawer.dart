@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../state/app_state.dart';
+import '../settings_screen.dart';
 
 class ProfileDrawer extends StatelessWidget {
   final bool open;
@@ -208,7 +209,17 @@ class _DrawerContent extends StatelessWidget {
 
               const Divider(),
               _DrawerItem(
-                  icon: Icons.settings_outlined, label: 'Settings'),
+                icon: Icons.settings_outlined,
+                label: 'Settings',
+                onTap: () {
+                  onClose();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const SettingsScreen()),
+                  );
+                },
+              ),
               _DrawerItem(
                   icon: Icons.help_outline, label: 'Help & support'),
             ],
@@ -326,8 +337,9 @@ class _DrawerSwitch extends StatelessWidget {
 class _DrawerItem extends StatelessWidget {
   final IconData icon;
   final String label;
+  final VoidCallback? onTap;
 
-  const _DrawerItem({required this.icon, required this.label});
+  const _DrawerItem({required this.icon, required this.label, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -345,7 +357,7 @@ class _DrawerItem extends StatelessWidget {
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
         dense: true,
-        onTap: () {},
+        onTap: onTap ?? () {},
       ),
     );
   }

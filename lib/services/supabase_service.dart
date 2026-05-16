@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config.dart';
+import 'app_logger.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SupabaseService — thin wrapper around supabase_flutter.
@@ -61,11 +62,14 @@ class SupabaseService {
   static Future<Map<String, dynamic>?> fetchProfile() async {
     final uid = currentUser?.id;
     if (uid == null) return null;
+    log.debug('fetchProfile — uid=$uid');
+    final sw = Stopwatch()..start();
     final res = await client
         .from('businesses')
         .select()
         .eq('user_id', uid)
         .maybeSingle();
+    log.debug('fetchProfile — ${res == null ? 'null (no row yet)' : 'got row id=${res['id']}'} (${sw.elapsedMilliseconds}ms)');
     return res;
   }
 
@@ -73,6 +77,7 @@ class SupabaseService {
   static Future<void> upsertProfile(Map<String, dynamic> data) async {
     final uid = currentUser?.id;
     if (uid == null) return;
+    log.info('upsertProfile — uid=$uid keys=${data.keys.toList()}');
     await client.from('businesses').upsert({
       'user_id': uid,
       ...data,
@@ -176,6 +181,8 @@ class SupabaseService {
   }) async {
     assert(['cash', 'momo', 'bank'].contains(paymentMethod),
         'paymentMethod must be cash, momo, or bank');
+    log.info('markInvoicePaid — invoiceId=$invoiceId method=$paymentMethod');
+    final sw = Stopwatch()..start();
 
     // Fetch the invoice so we can copy the snapshot into the receipt.
     final invRow = await client
@@ -216,16 +223,19 @@ class SupabaseService {
         .update({'status': 'paid'})
         .eq('id', invoiceId);
 
+    log.info('markInvoicePaid — done receipt=${receiptRow['receipt_number']} (${sw.elapsedMilliseconds}ms)');
     return Map<String, dynamic>.from(receiptRow);
   }
 
   /// Mark an invoice as void (cancelled/invalidated). Accrual ledger reversal
   /// is left to the web app; from the mobile side we just flip the status.
   static Future<void> voidInvoice({required String invoiceId}) async {
+    log.info('voidInvoice — invoiceId=$invoiceId');
     await client
         .from('invoices')
         .update({'status': 'void'})
         .eq('id', invoiceId);
+    log.info('voidInvoice — done');
   }
 
   /// Enable the hosted Paystack pay page for this invoice by generating a
@@ -237,6 +247,7 @@ class SupabaseService {
   static Future<String> enableInvoicePayLink({
     required String invoiceId,
   }) async {
+    log.info('enableInvoicePayLink — invoiceId=$invoiceId');
     final token = _generatePayToken();
     await client
         .from('invoices')
@@ -247,6 +258,7 @@ class SupabaseService {
           'online_pay_enabled': true,
         })
         .eq('id', invoiceId);
+    log.info('enableInvoicePayLink — done token=${AppLogger.maskToken(token)}');
     return token;
   }
 
@@ -277,6 +289,8 @@ class SupabaseService {
     String? customerEmail,
     DateTime? dueDate,
   }) async {
+    log.info('createInvoice — bizId=$businessId customer="$customerName" amount=$totalAmount');
+    final sw = Stopwatch()..start();
     final invoiceNumberRaw = await client.rpc(
       'get_next_document_number',
       params: {
@@ -312,6 +326,7 @@ class SupabaseService {
         .select()
         .single();
 
+    log.info('createInvoice — done invoiceNumber=${row['invoice_number']} (${sw.elapsedMilliseconds}ms)');
     return Map<String, dynamic>.from(row);
   }
 }

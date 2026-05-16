@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show TextInput;
 import 'package:provider/provider.dart';
 import '../core/tokens.dart';
 import '../core/widgets/common.dart';
+import '../services/app_logger.dart';
 import '../state/app_state.dart';
 
 const _kIndustries = [
@@ -42,6 +44,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _obscurePw = true;
   bool _obscureConfirm = true;
 
+  // Focus nodes for keyboard chaining between fields.
+  final _nameFocus = FocusNode();
+  final _phoneFocus = FocusNode();
+  final _pwFocus = FocusNode();
+  final _confirmPwFocus = FocusNode();
+
   String? _localError;
 
   @override
@@ -52,6 +60,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _emailCtrl.dispose();
     _pwCtrl.dispose();
     _confirmPwCtrl.dispose();
+    _nameFocus.dispose();
+    _phoneFocus.dispose();
+    _pwFocus.dispose();
+    _confirmPwFocus.dispose();
     super.dispose();
   }
 
@@ -68,6 +80,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
       setState(() => _localError = 'Phone number is required.');
       return;
     }
+    log.info('SignUpScreen — step 0 validated, advancing to step 1');
     setState(() {
       _localError = null;
       _step = 1;
@@ -90,6 +103,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
       return;
     }
 
+    log.info('SignUpScreen — submit tapped email=${AppLogger.maskEmail(_emailCtrl.text.trim())}');
+    // Commit autofill so password managers can save the new credentials.
+    TextInput.finishAutofillContext();
     final state = context.read<AppState>();
     final ok = await state.signUp(
       email: _emailCtrl.text.trim(),
@@ -105,9 +121,11 @@ class _SignUpScreenState extends State<SignUpScreen> {
       if (state.authed) {
         // Mock or instant-login Supabase — already authed.
         // Pop back so _SplashGate's AnimatedSwitcher shows AppShell.
+        log.info('SignUpScreen — authed immediately, popping to AppShell');
         Navigator.of(context).pop();
       } else {
         // Email confirmation required.
+        log.info('SignUpScreen — email confirmation required, advancing to step 2');
         setState(() => _step = 2);
       }
     }
@@ -192,6 +210,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           fullNameCtrl: _fullNameCtrl,
                           nameCtrl: _nameCtrl,
                           phoneCtrl: _phoneCtrl,
+                          nameFocus: _nameFocus,
+                          phoneFocus: _phoneFocus,
                           industry: _industry,
                           onIndustryChanged: (v) =>
                               setState(() => _industry = v),
@@ -204,6 +224,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                               emailCtrl: _emailCtrl,
                               pwCtrl: _pwCtrl,
                               confirmPwCtrl: _confirmPwCtrl,
+                              pwFocus: _pwFocus,
+                              confirmPwFocus: _confirmPwFocus,
                               obscurePw: _obscurePw,
                               obscureConfirm: _obscureConfirm,
                               onTogglePw: () =>
@@ -234,6 +256,8 @@ class _BusinessStep extends StatelessWidget {
   final TextEditingController fullNameCtrl;
   final TextEditingController nameCtrl;
   final TextEditingController phoneCtrl;
+  final FocusNode nameFocus;
+  final FocusNode phoneFocus;
   final String industry;
   final ValueChanged<String> onIndustryChanged;
   final String? error;
@@ -244,6 +268,8 @@ class _BusinessStep extends StatelessWidget {
     required this.fullNameCtrl,
     required this.nameCtrl,
     required this.phoneCtrl,
+    required this.nameFocus,
+    required this.phoneFocus,
     required this.industry,
     required this.onIndustryChanged,
     required this.error,
@@ -253,7 +279,8 @@ class _BusinessStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Column(
+    return AutofillGroup(
+      child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Your details', style: AppType.display(size: 28, color: c.text)),
@@ -268,21 +295,32 @@ class _BusinessStep extends StatelessWidget {
           icon: Icons.person_outline,
           hint: 'e.g. Adwoa Mensah',
           keyboardType: TextInputType.name,
+          textInputAction: TextInputAction.next,
+          autofillHints: const [AutofillHints.name],
+          onSubmitted: (_) => nameFocus.requestFocus(),
         ),
         const SizedBox(height: 16),
         _SignUpField(
           label: 'Business name',
           controller: nameCtrl,
+          focusNode: nameFocus,
           icon: Icons.storefront_outlined,
           hint: 'e.g. Akwaaba Threads',
+          textInputAction: TextInputAction.next,
+          autofillHints: const [AutofillHints.organizationName],
+          onSubmitted: (_) => phoneFocus.requestFocus(),
         ),
         const SizedBox(height: 16),
         _SignUpField(
           label: 'Phone number',
           controller: phoneCtrl,
+          focusNode: phoneFocus,
           icon: Icons.phone_outlined,
           hint: '+233 XX XXX XXXX',
           keyboardType: TextInputType.phone,
+          textInputAction: TextInputAction.done,
+          autofillHints: const [AutofillHints.telephoneNumber],
+          onSubmitted: (_) => onNext(),
         ),
         const SizedBox(height: 16),
 
@@ -326,6 +364,7 @@ class _BusinessStep extends StatelessWidget {
         AppBtn('Next →', full: true, fontSize: 15, onTap: onNext),
         const SizedBox(height: 32),
       ],
+      ),
     );
   }
 }
@@ -336,6 +375,8 @@ class _AccountStep extends StatelessWidget {
   final TextEditingController emailCtrl;
   final TextEditingController pwCtrl;
   final TextEditingController confirmPwCtrl;
+  final FocusNode pwFocus;
+  final FocusNode confirmPwFocus;
   final bool obscurePw;
   final bool obscureConfirm;
   final VoidCallback onTogglePw;
@@ -349,6 +390,8 @@ class _AccountStep extends StatelessWidget {
     required this.emailCtrl,
     required this.pwCtrl,
     required this.confirmPwCtrl,
+    required this.pwFocus,
+    required this.confirmPwFocus,
     required this.obscurePw,
     required this.obscureConfirm,
     required this.onTogglePw,
@@ -361,7 +404,8 @@ class _AccountStep extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Column(
+    return AutofillGroup(
+      child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text('Your account', style: AppType.display(size: 28, color: c.text)),
@@ -376,14 +420,24 @@ class _AccountStep extends StatelessWidget {
           icon: Icons.email_outlined,
           hint: 'hello@yourbusiness.com',
           keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.next,
+          autofillHints: const [
+            AutofillHints.newUsername,
+            AutofillHints.email,
+          ],
+          onSubmitted: (_) => pwFocus.requestFocus(),
         ),
         const SizedBox(height: 16),
         _SignUpField(
           label: 'Password',
           controller: pwCtrl,
+          focusNode: pwFocus,
           icon: Icons.lock_outline,
           hint: 'At least 8 characters',
           obscure: obscurePw,
+          textInputAction: TextInputAction.next,
+          autofillHints: const [AutofillHints.newPassword],
+          onSubmitted: (_) => confirmPwFocus.requestFocus(),
           suffix: GestureDetector(
             onTap: onTogglePw,
             child: Icon(
@@ -399,9 +453,13 @@ class _AccountStep extends StatelessWidget {
         _SignUpField(
           label: 'Confirm password',
           controller: confirmPwCtrl,
+          focusNode: confirmPwFocus,
           icon: Icons.lock_outline,
           hint: 'Repeat your password',
           obscure: obscureConfirm,
+          textInputAction: TextInputAction.done,
+          autofillHints: const [AutofillHints.newPassword],
+          onSubmitted: (_) => onSubmit(),
           suffix: GestureDetector(
             onTap: onToggleConfirm,
             child: Icon(
@@ -435,6 +493,7 @@ class _AccountStep extends StatelessWidget {
                 onTap: onSubmit),
         const SizedBox(height: 32),
       ],
+      ),
     );
   }
 }
@@ -507,6 +566,10 @@ class _SignUpField extends StatelessWidget {
   final bool obscure;
   final Widget? suffix;
   final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final List<String>? autofillHints;
+  final ValueChanged<String>? onSubmitted;
+  final FocusNode? focusNode;
 
   const _SignUpField({
     required this.label,
@@ -516,6 +579,10 @@ class _SignUpField extends StatelessWidget {
     this.obscure = false,
     this.suffix,
     this.keyboardType,
+    this.textInputAction,
+    this.autofillHints,
+    this.onSubmitted,
+    this.focusNode,
   });
 
   @override
@@ -543,8 +610,12 @@ class _SignUpField extends StatelessWidget {
               Expanded(
                 child: TextField(
                   controller: controller,
+                  focusNode: focusNode,
                   obscureText: obscure,
                   keyboardType: keyboardType,
+                  textInputAction: textInputAction,
+                  autofillHints: autofillHints,
+                  onSubmitted: onSubmitted,
                   style: AppType.body(
                       size: 14, weight: FontWeight.w500, color: c.text),
                   decoration: InputDecoration(

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../core/tokens.dart';
 import '../core/widgets/common.dart';
+import '../services/app_logger.dart';
 import '../state/app_state.dart';
+import 'sheets/forgot_password_sheet.dart';
 import 'sign_up_screen.dart';
 
 class SignInScreen extends StatefulWidget {
@@ -15,24 +18,41 @@ class SignInScreen extends StatefulWidget {
 class _SignInScreenState extends State<SignInScreen> {
   final _emailCtrl = TextEditingController();
   final _pwCtrl = TextEditingController();
+  final _pwFocus = FocusNode();
   bool _obscure = true;
 
   @override
   void dispose() {
     _emailCtrl.dispose();
     _pwCtrl.dispose();
+    _pwFocus.dispose();
     super.dispose();
   }
 
   Future<void> _signIn() async {
+    log.info('SignInScreen — sign in tapped email=${AppLogger.maskEmail(_emailCtrl.text.trim())}');
     final state = context.read<AppState>();
     state.clearAuthError();
+    // Tell the platform autofill engine the credentials are committed so the
+    // password manager can save them on first successful sign-in.
+    TextInput.finishAutofillContext();
     await state.signIn(
       email: _emailCtrl.text.trim(),
       password: _pwCtrl.text,
     );
-    // On success, AppState.authed becomes true.
-    // _SplashGate's AnimatedSwitcher handles the transition to AppShell.
+    // On success, AppState.authed becomes true and _AuthGate transitions to
+    // AppShell. No manual Navigator work needed here.
+  }
+
+  void _openForgotPassword() {
+    log.info('SignInScreen — forgot password tapped');
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) =>
+          ForgotPasswordSheet(initialEmail: _emailCtrl.text.trim()),
+    );
   }
 
   @override
@@ -92,38 +112,63 @@ class _SignInScreenState extends State<SignInScreen> {
 
               const SizedBox(height: 32),
 
-              // ── Fields ────────────────────────────────
-              _InputField(
-                label: 'Email',
-                controller: _emailCtrl,
-                icon: Icons.email_outlined,
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 12),
-              _InputField(
-                label: 'Password',
-                controller: _pwCtrl,
-                icon: Icons.lock_outline,
-                obscure: _obscure,
-                suffix: GestureDetector(
-                  onTap: () => setState(() => _obscure = !_obscure),
-                  child: Icon(
-                    _obscure
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
-                    size: 18,
-                    color: c.textFaint,
-                  ),
+              // ── Fields (wrapped in AutofillGroup so the platform's password
+              // manager can save the email + password as a single credential) ──
+              AutofillGroup(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _InputField(
+                      label: 'Email',
+                      controller: _emailCtrl,
+                      icon: Icons.email_outlined,
+                      keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      autofillHints: const [
+                        AutofillHints.username,
+                        AutofillHints.email,
+                      ],
+                      onSubmitted: (_) => _pwFocus.requestFocus(),
+                    ),
+                    const SizedBox(height: 12),
+                    _InputField(
+                      label: 'Password',
+                      controller: _pwCtrl,
+                      focusNode: _pwFocus,
+                      icon: Icons.lock_outline,
+                      obscure: _obscure,
+                      textInputAction: TextInputAction.done,
+                      autofillHints: const [AutofillHints.password],
+                      onSubmitted: (_) => _signIn(),
+                      suffix: GestureDetector(
+                        onTap: () => setState(() => _obscure = !_obscure),
+                        child: Icon(
+                          _obscure
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          size: 18,
+                          color: c.textFaint,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 10),
               Align(
                 alignment: Alignment.centerRight,
-                child: Text('Forgot password?',
-                    style: AppType.body(
-                        size: 13,
-                        weight: FontWeight.w600,
-                        color: c.teal)),
+                child: GestureDetector(
+                  onTap: _openForgotPassword,
+                  behavior: HitTestBehavior.opaque,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text('Forgot password?',
+                        style: AppType.body(
+                            size: 13,
+                            weight: FontWeight.w600,
+                            color: c.teal)),
+                  ),
+                ),
               ),
 
               // ── Error message ─────────────────────────
@@ -272,6 +317,10 @@ class _InputField extends StatelessWidget {
   final bool obscure;
   final Widget? suffix;
   final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final List<String>? autofillHints;
+  final ValueChanged<String>? onSubmitted;
+  final FocusNode? focusNode;
 
   const _InputField({
     required this.label,
@@ -280,6 +329,10 @@ class _InputField extends StatelessWidget {
     this.obscure = false,
     this.suffix,
     this.keyboardType,
+    this.textInputAction,
+    this.autofillHints,
+    this.onSubmitted,
+    this.focusNode,
   });
 
   @override
@@ -307,8 +360,12 @@ class _InputField extends StatelessWidget {
               Expanded(
                 child: TextField(
                   controller: controller,
+                  focusNode: focusNode,
                   obscureText: obscure,
                   keyboardType: keyboardType,
+                  textInputAction: textInputAction,
+                  autofillHints: autofillHints,
+                  onSubmitted: onSubmitted,
                   style: AppType.body(
                       size: 14, weight: FontWeight.w500, color: c.text),
                   decoration: const InputDecoration(

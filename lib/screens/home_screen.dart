@@ -6,6 +6,7 @@ import '../core/widgets/common.dart';
 import '../core/models.dart';
 import '../core/mock_data.dart';
 import '../state/app_state.dart';
+import 'home_skeleton.dart';
 
 class HomeScreen extends StatelessWidget {
   final void Function(String) onAction;
@@ -21,7 +22,15 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final layout = context.watch<AppState>().homeLayout;
+    final state = context.watch<AppState>();
+    // Real Supabase user signed in but business profile hasn't loaded yet.
+    // Prevents a flash of mock kBusiness data ("Akwaaba Threads") on first
+    // sign-in. Mock mode (no Supabase keys) keeps state.user == null and
+    // intentionally uses the mock data, so the skeleton is skipped there.
+    if (state.user != null && !state.hasRealBusiness) {
+      return const HomeSkeleton();
+    }
+    final layout = state.homeLayout;
     return switch (layout) {
       HomeLayout.score  => _ScoreLayout(onAction: onAction, onTool: onTool, onOpenDrawer: onOpenDrawer),
       HomeLayout.agenda => _AgendaLayout(onAction: onAction, onTool: onTool, onOpenDrawer: onOpenDrawer),
@@ -297,6 +306,10 @@ class _QuickActions extends StatelessWidget {
             physics: const NeverScrollableScrollPhysics(),
             mainAxisSpacing: 8,
             crossAxisSpacing: 8,
+            // Slightly taller than wide so 2-line labels ("New invoice",
+            // "Log expense") fit without overflowing the 36px icon + 6px
+            // gap + 2-line text stack.
+            childAspectRatio: 0.85,
             children: kQuickActions
                 .map((a) => _QuickTile(action: a, onTap: () => onAction(a.id)))
                 .toList(),

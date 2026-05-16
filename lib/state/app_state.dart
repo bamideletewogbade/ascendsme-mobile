@@ -5,6 +5,7 @@ import '../config.dart';
 import '../core/models.dart';
 import '../core/mock_data.dart';
 import '../services/ai_service.dart';
+import '../services/app_logger.dart';
 import '../services/supabase_service.dart';
 
 enum AppTab { home, tools, verify, help }
@@ -32,10 +33,13 @@ class AppState extends ChangeNotifier {
 
   /// Called once after SupabaseService.initialize() to restore a persisted session.
   void initFromSession() {
-    if (!supabaseConfigured) return;
+    log.info('initFromSession — supabaseConfigured=$supabaseConfigured');
+    if (!supabaseConfigured) {
+      log.warning('initFromSession — Supabase not configured, running in mock mode');
+      return;
+    }
     _user = SupabaseService.currentUser;
-    // No notifyListeners — called synchronously before runApp.
-    // Profile load is fire-and-forget; it'll notify listeners when it lands.
+    log.info('initFromSession — userId=${_user?.id ?? 'none'}');
     if (_user != null) {
       loadBusiness();
     }
@@ -44,19 +48,21 @@ class AppState extends ChangeNotifier {
   /// Called by the Supabase auth stream listener in main.dart.
   void handleAuthChange(AuthState state) {
     final previousUserId = _user?.id;
+    log.info('handleAuthChange — event=${state.event.name} previousUserId=${previousUserId ?? 'none'}');
     _user = state.session?.user;
     _authLoading = false;
     _authError = null;
     notifyListeners();
 
-    // Reload the business profile on a genuine login (user transition) and
-    // clear it on sign-out. Token refreshes don't change _user.id so they're
-    // a no-op here — that preserves any in-memory gamification progress.
     final currentUserId = _user?.id;
+    log.info('handleAuthChange resolved — now userId=${currentUserId ?? 'signed-out'}');
+
     if (currentUserId == null && previousUserId != null) {
+      log.info('handleAuthChange — user signed out, clearing business profile');
       _business = null;
       notifyListeners();
     } else if (currentUserId != null && currentUserId != previousUserId) {
+      log.info('handleAuthChange — new login detected, triggering loadBusiness');
       loadBusiness();
     }
   }
@@ -77,31 +83,27 @@ class AppState extends ChangeNotifier {
   /// back to the mock. Triggers a financials + invoices reload on success.
   Future<void> loadBusiness() async {
     if (!supabaseConfigured || _user == null) return;
+    log.debug('loadBusiness — userId=${_user!.id}');
+    final sw = Stopwatch()..start();
     try {
       final row = await SupabaseService.fetchProfile();
       if (row == null) {
+        log.warning('loadBusiness — fetchProfile returned null (bootstrap trigger may still be running)');
         _business = null;
         _financials = Financials.empty;
         _invoices = [];
       } else {
         _business = Business.fromRow(row);
-        // Seed the in-memory sustainability score from the server so the dial
-        // shows the user's real progress on first paint. Quest completions are
-        // still in-memory only — they'll be lost on next loadBusiness() until
-        // we persist them server-side. Document this as a known limitation.
         _score = _business!.sustainabilityScore;
+        log.info('loadBusiness — loaded: id=${_business!.id} name="${_business!.name}" score=${_business!.sustainabilityScore} (${sw.elapsedMilliseconds}ms)');
       }
       notifyListeners();
-      // Fire-and-forget downstream loads. The UI shows 0/empty until they
-      // resolve, then re-renders via notifyListeners.
       if (_business?.id != null) {
         unawaited(loadFinancials());
         unawaited(loadInvoices());
       }
-    } catch (e) {
-      // Don't fail loudly — keep _business null and let the mock surface.
-      // The error path is rare (network blip / RLS misconfiguration) and the
-      // UI degrades gracefully via the getter fallback.
+    } catch (e, st) {
+      log.error('loadBusiness failed', error: e, stackTrace: st);
       _business = null;
       _financials = Financials.empty;
       _invoices = [];
@@ -126,9 +128,11 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    log.debug('loadFinancials — bizId=$bizId');
     _financialsLoading = true;
     notifyListeners();
 
+    final sw = Stopwatch()..start();
     try {
       final now = DateTime.now();
       final thisMonthStart = DateTime(now.year, now.month, 1);
@@ -188,7 +192,9 @@ class AppState extends ChangeNotifier {
         revenueChangePctVsLastMonth: pctChange(revenueNow, revenueLast),
         expensesChangePctVsLastMonth: pctChange(expensesNow, expensesLast),
       );
-    } catch (_) {
+      log.info('loadFinancials — revenue=${revenueNow.round()} expenses=${expensesNow.round()} outstanding=${outstandingTotal.round()} openInvoices=${openInvoices.length} overdue=$overdueCount (${sw.elapsedMilliseconds}ms)');
+    } catch (e, st) {
+      log.error('loadFinancials failed', error: e, stackTrace: st);
       _financials = Financials.empty;
     } finally {
       _financialsLoading = false;
@@ -222,12 +228,16 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
+    log.debug('loadInvoices — bizId=$bizId');
     _invoicesLoading = true;
     notifyListeners();
+    final sw = Stopwatch()..start();
     try {
       final rows = await SupabaseService.fetchInvoices(businessId: bizId);
       _invoices = rows.map(Invoice.fromRow).toList();
-    } catch (_) {
+      log.info('loadInvoices — loaded ${_invoices.length} invoices (${sw.elapsedMilliseconds}ms)');
+    } catch (e, st) {
+      log.error('loadInvoices failed', error: e, stackTrace: st);
       _invoices = [];
     } finally {
       _invoicesLoading = false;
@@ -240,10 +250,12 @@ class AppState extends ChangeNotifier {
   /// pull-to-refresh.
   Future<void> refreshAll() async {
     if (!supabaseConfigured || _user == null) return;
+    log.info('refreshAll — userId=${_user!.id}');
     await loadBusiness();
   }
 
   Future<bool> signIn({required String email, required String password}) async {
+    log.info('signIn — email=${AppLogger.maskEmail(email)} supabaseConfigured=$supabaseConfigured');
     if (!supabaseConfigured) {
       _mockAuthed = true;
       notifyListeners();
@@ -252,19 +264,24 @@ class AppState extends ChangeNotifier {
     _authLoading = true;
     _authError = null;
     notifyListeners();
+    final sw = Stopwatch()..start();
     try {
       final res = await SupabaseService.signIn(email: email, password: password);
       _user = res.user;
       _authLoading = false;
       _authError = null;
       notifyListeners();
-      return res.user != null;
+      final success = res.user != null;
+      log.info('signIn — ${success ? 'success userId=${_user?.id}' : 'no user returned'} (${sw.elapsedMilliseconds}ms)');
+      return success;
     } on AuthException catch (e) {
+      log.warning('signIn — AuthException: ${e.message} (${sw.elapsedMilliseconds}ms)');
       _authLoading = false;
       _authError = e.message;
       notifyListeners();
       return false;
-    } catch (_) {
+    } catch (e, st) {
+      log.error('signIn failed', error: e, stackTrace: st);
       _authLoading = false;
       _authError = 'Sign-in failed. Check your connection and try again.';
       notifyListeners();
@@ -280,6 +297,7 @@ class AppState extends ChangeNotifier {
     required String fullName,
     String industry = '',
   }) async {
+    log.info('signUp — email=${AppLogger.maskEmail(email)} business="$businessName" industry="$industry" supabaseConfigured=$supabaseConfigured');
     if (!supabaseConfigured) {
       _mockAuthed = true;
       notifyListeners();
@@ -288,6 +306,7 @@ class AppState extends ChangeNotifier {
     _authLoading = true;
     _authError = null;
     notifyListeners();
+    final sw = Stopwatch()..start();
     try {
       final res = await SupabaseService.signUp(
         email: email,
@@ -307,13 +326,18 @@ class AppState extends ChangeNotifier {
       _authLoading = false;
       _authError = null;
       notifyListeners();
-      return res.user != null;
+      final hasUser = res.user != null;
+      final hasSession = res.session != null;
+      log.info('signUp — hasUser=$hasUser hasSession=$hasSession userId=${res.user?.id ?? 'none'} (${sw.elapsedMilliseconds}ms)');
+      return hasUser;
     } on AuthException catch (e) {
+      log.warning('signUp — AuthException: ${e.message} (${sw.elapsedMilliseconds}ms)');
       _authLoading = false;
       _authError = e.message;
       notifyListeners();
       return false;
-    } catch (_) {
+    } catch (e, st) {
+      log.error('signUp failed', error: e, stackTrace: st);
       _authLoading = false;
       _authError = 'Sign-up failed. Check your connection and try again.';
       notifyListeners();
@@ -322,6 +346,7 @@ class AppState extends ChangeNotifier {
   }
 
   void signOut() {
+    log.info('signOut — userId=${_user?.id ?? 'none'}');
     _mockAuthed = false;
     _user = null;
     if (supabaseConfigured) SupabaseService.signOut();
@@ -375,6 +400,7 @@ class AppState extends ChangeNotifier {
     final to = (_score + q.pts).clamp(0, 100);
     _score = to;
     _scoreUp = ScoreUpEvent(pts: q.pts, from: from, to: to);
+    log.info('completeQuest — id=${q.id} pts=${q.pts} score $from→$to');
     notifyListeners();
   }
 
@@ -420,6 +446,7 @@ class AppState extends ChangeNotifier {
   AIModel _aiModel = AIModel.groqLlama33;
   AIModel get aiModel => _aiModel;
   void setAiModel(AIModel m) {
+    log.info('setAiModel — ${_aiModel.name} → ${m.name}');
     _aiModel = m;
     AIService.setModel(m);
     notifyListeners();

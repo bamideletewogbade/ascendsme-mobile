@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../config.dart';
 import '../core/models.dart';
 import '../core/mock_data.dart';
+import 'app_logger.dart';
 
 // ─────────────────────────────────────────────
 // AIService — Gemini first, Groq for fast Llama, OpenRouter as fallback.
@@ -33,16 +34,22 @@ class AIService {
     final full =
         '$ctx\n\nUser asks: $userPrompt\n\nRespond in at most $maxSentences short sentences. No markdown formatting.';
 
+    log.debug('AIService.ask — model=${_currentModel.id} provider=${_currentModel.provider.name} promptLen=${full.length}');
+    final sw = Stopwatch()..start();
     try {
+      String result;
       switch (_currentModel.provider) {
         case AIProvider.gemini:
-          return await _gemini(full);
+          result = await _gemini(full);
         case AIProvider.groq:
-          return await _groq(full);
+          result = await _groq(full);
         case AIProvider.openRouter:
-          return await _openRouter(full);
+          result = await _openRouter(full);
       }
-    } catch (e) {
+      log.info('AIService.ask — ok responseLen=${result.length} (${sw.elapsedMilliseconds}ms)');
+      return result;
+    } catch (e, st) {
+      log.error('AIService.ask failed', error: e, stackTrace: st);
       return '(AI unavailable — try again in a moment)';
     }
   }
@@ -126,6 +133,7 @@ class AIService {
 
   /// Specialized: parse a natural-language invoice description into JSON.
   static Future<Map<String, dynamic>?> parseInvoice(String description) async {
+    log.debug('parseInvoice — model=${_currentModel.id} desc="$description"');
     const systemPrompt = '''You are a JSON-only assistant inside an invoicing app.
 Extract the customer name and total amount in GHS from the user description.
 Return STRICTLY a JSON object: {"customer":"...","amount":0}
@@ -197,9 +205,14 @@ No prose, no markdown, just the JSON.''';
       }
       final match = RegExp(r'\{[\s\S]*\}').firstMatch(result);
       if (match != null) {
-        return jsonDecode(match.group(0)!) as Map<String, dynamic>;
+        final parsed = jsonDecode(match.group(0)!) as Map<String, dynamic>;
+        log.debug('parseInvoice — parsed customer="${parsed['customer']}" amount=${parsed['amount']}');
+        return parsed;
       }
-    } catch (_) {}
+      log.warning('parseInvoice — no JSON object found in response: "$result"');
+    } catch (e, st) {
+      log.error('parseInvoice failed', error: e, stackTrace: st);
+    }
     return null;
   }
 }
