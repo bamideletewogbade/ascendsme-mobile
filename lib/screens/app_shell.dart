@@ -4,7 +4,7 @@ import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 import '../state/app_state.dart';
 import 'home_screen.dart';
-import 'money_screen.dart';
+import 'finance_screen.dart';
 import 'customers_screen.dart';
 import 'profile_screen.dart';
 import 'verify_screen.dart';
@@ -13,6 +13,7 @@ import 'sheets/profile_drawer.dart';
 import 'sheets/notifications_sheet.dart';
 import 'sheets/new_invoice_sheet.dart';
 import 'sheets/log_expense_sheet.dart';
+import 'sheets/log_sale_sheet.dart';
 import 'sheets/ask_ascend_sheet.dart';
 
 class AppShell extends StatelessWidget {
@@ -62,40 +63,29 @@ class _AppShellBodyState extends State<_AppShellBody> {
             'follow-up reminder I can send to the customer. Keep it warm and brief.');
       case 'expense':
         LogExpenseSheet.show(ctx);
+      case 'sale':
+        LogSaleSheet.show(ctx);
       case 'booking':
         _pushTool(ctx, 'booking');
-      case 'customer':
-        // Jump to the Customers tab. Real "add customer" form lands in
-        // Phase 3+ when we model a customers table.
-        context.read<AppState>().setTab(AppTab.customers);
 
-      // ── Recommendation card CTAs (kRecommendations.id) ───────────────
-      case 'r1': // "Log this month's expenses"
-        LogExpenseSheet.show(ctx);
-      case 'r2': // "Follow up on overdue invoices"
+      // ── Dynamic recommendation IDs from buildRecommendations() ────────
+      case 'rec_first_invoice':
+        _openNewInvoice();
+      case 'rec_followup_overdue':
         _openAI('I have overdue invoices. Draft a polite, professional WhatsApp '
             'follow-up reminder I can send to the customer. Keep it warm and brief.');
-      case 'r3': // "Apply to the Stanbic Women in Business facility"
-        // Surface the verification + funding flow as the canonical entry
-        // point. The lender list is at the bottom of that screen.
+      case 'rec_first_expense':
+        LogExpenseSheet.show(ctx);
+      case 'rec_profile':
+        // Profile tab → Settings is the closest edit surface today. A
+        // dedicated "edit business profile" screen lands when the user
+        // needs more than email + business name.
+        context.read<AppState>().setTab(AppTab.profile);
+      case 'rec_verify':
         _pushVerification(ctx);
-      case 'r4': // "Add 2 more product photos to your public shop"
-        _comingSoon(ctx, 'Online shop');
+      case 'rec_all_clear':
+        context.read<AppState>().setTab(AppTab.finance);
     }
-  }
-
-  void _comingSoon(BuildContext ctx, String featureName) {
-    final c = ctx.colors;
-    ScaffoldMessenger.of(ctx).showSnackBar(
-      SnackBar(
-        content: Text('$featureName — coming soon.',
-            style: AppType.body(size: 13, color: Colors.white)),
-        backgroundColor: c.tealDeep,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12)),
-      ),
-    );
   }
 
   void _pushVerification(BuildContext ctx) {
@@ -142,7 +132,7 @@ class _AppShellBodyState extends State<_AppShellBody> {
                         onAction: (id) => _handleAction(context, id),
                         onOpenDrawer: () => setState(() => _drawerOpen = true),
                       ),
-                      const MoneyScreen(),
+                      const FinanceScreen(),
                       const CustomersScreen(),
                       const ProfileScreen(),
                     ],

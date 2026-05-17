@@ -5,19 +5,19 @@ import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 import '../state/app_state.dart';
 import 'sheets/log_expense_sheet.dart';
+import 'sheets/log_sale_sheet.dart';
 import 'sheets/new_invoice_sheet.dart';
 import 'tools/invoices_screen.dart';
 import 'tools/invoice_detail_screen.dart';
 
-/// Money tab — the financial pulse of the business. Currently:
+/// Finance tab — the financial pulse of the business. Surfaces:
 /// - Month-to-date cashflow summary (revenue / expenses / outstanding)
-/// - 3 most recent invoices with a "View all" link
-/// - Quick actions: New invoice (wired), Log expense (Phase 3 stub)
+/// - Quick actions: New invoice, Log sale (cash/MoMo), Log expense
+/// - Recent invoices with a "View all" link to the full list
 ///
-/// Full invoice management lives at [InvoicesScreen] (pushable). Expenses
-/// management is Phase 3.
-class MoneyScreen extends StatelessWidget {
-  const MoneyScreen({super.key});
+/// Full invoice management lives at [InvoicesScreen] (pushable).
+class FinanceScreen extends StatelessWidget {
+  const FinanceScreen({super.key});
 
   void _openNewInvoice(BuildContext context) {
     showModalBottomSheet(
@@ -39,6 +39,10 @@ class MoneyScreen extends StatelessWidget {
     LogExpenseSheet.show(context);
   }
 
+  void _openLogSale(BuildContext context) {
+    LogSaleSheet.show(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -53,7 +57,7 @@ class MoneyScreen extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-            child: Text('Money',
+            child: Text('Finance',
                 style: AppType.display(size: 28, color: c.text)),
           ),
 
@@ -123,25 +127,38 @@ class MoneyScreen extends StatelessWidget {
           // Quick actions
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
+            child: Column(
               children: [
-                Expanded(
-                  child: AppBtn(
-                    'New invoice',
-                    icon: 'description',
-                    onTap: () => _openNewInvoice(context),
-                    fontSize: 13,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: AppBtn(
+                        'Log sale',
+                        icon: 'payments',
+                        onTap: () => _openLogSale(context),
+                        fontSize: 13,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: AppBtn(
+                        'New invoice',
+                        icon: 'description',
+                        variant: BtnVariant.secondary,
+                        onTap: () => _openNewInvoice(context),
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: AppBtn(
-                    'Log expense',
-                    icon: 'receipt',
-                    variant: BtnVariant.secondary,
-                    onTap: () => _openLogExpense(context),
-                    fontSize: 13,
-                  ),
+                const SizedBox(height: 10),
+                AppBtn(
+                  'Log expense',
+                  icon: 'receipt',
+                  variant: BtnVariant.outline,
+                  full: true,
+                  onTap: () => _openLogExpense(context),
+                  fontSize: 13,
                 ),
               ],
             ),

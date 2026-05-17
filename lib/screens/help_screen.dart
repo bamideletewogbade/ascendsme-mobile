@@ -59,47 +59,39 @@ class HelpScreen extends StatelessWidget {
                 style: AppType.display(size: 28, color: c.text)),
           ),
 
-          // Account manager card
+          // Support card — honest about what's available now.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: AppCard(
               background: c.tealSurface,
               border: Border.all(color: c.tealSurfaceStrong),
               padding: const EdgeInsets.all(20),
-              child: Row(
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  AppAvatar('KO', size: 44, tone: 'teal'),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Kojo Asante',
-                            style: AppType.heading(size: 15, color: c.text)),
-                        Text('Your account manager',
-                            style:
-                                AppType.body(size: 12, color: c.textMuted)),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            AppBtn('Chat',
-                                variant: BtnVariant.primary,
-                                icon: 'chat',
-                                fontSize: 12,
-                                onTap: () => _comingSoon(
-                                    context, 'In-app chat with your account manager')),
-                            const SizedBox(width: 8),
-                            AppBtn('Call',
-                                variant: BtnVariant.outline,
-                                icon: 'phone',
-                                fontSize: 12,
-                                onTap: () => _comingSoon(
-                                    context, 'Call your account manager')),
-                          ],
-                        ),
-                      ],
-                    ),
+                  Row(
+                    children: [
+                      Icon(Icons.support_agent,
+                          size: 22, color: c.tealDeep),
+                      const SizedBox(width: 10),
+                      Text('Need a hand?',
+                          style:
+                              AppType.heading(size: 15, color: c.text)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Email us at support@ascendsme.africa and the team will get back to you within one business day. In-app chat with an account manager is coming soon.',
+                    style: AppType.body(size: 13, color: c.textMuted),
+                  ),
+                  const SizedBox(height: 14),
+                  AppBtn(
+                    'Email support',
+                    variant: BtnVariant.primary,
+                    icon: 'mail',
+                    fontSize: 12.5,
+                    onTap: () =>
+                        _comingSoon(context, 'Email support'),
                   ),
                 ],
               ),

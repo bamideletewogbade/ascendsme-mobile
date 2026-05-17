@@ -180,6 +180,75 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(rows as List);
   }
 
+  // ── Quick sale (direct cash/MoMo receipt) ──────────────────────────────────
+
+  /// Insert a "direct sale" — money received without an invoice intermediary.
+  /// Used for cash sales, MoMo payments at point of sale, anything where a
+  /// customer pays in the moment and walks away.
+  ///
+  /// Goes into the same `receipts` table that `markInvoicePaid` writes to, so
+  /// the row counts as revenue immediately via `sumReceipts`. The key
+  /// difference: `invoice_id` is null because there's no invoice behind it.
+  ///
+  /// [paymentMethod] must be one of 'cash' | 'momo' | 'bank' — same validation
+  /// as `markInvoicePaid`.
+  static Future<Map<String, dynamic>> createSale({
+    required String businessId,
+    required num amount,
+    required String paymentMethod,
+    DateTime? paidDate,
+    String? customerName,
+    String? description,
+  }) async {
+    assert(['cash', 'momo', 'bank'].contains(paymentMethod),
+        'paymentMethod must be cash, momo, or bank');
+    log.info('createSale — bizId=$businessId amount=$amount method=$paymentMethod');
+    final sw = Stopwatch()..start();
+
+    final receiptNumberRaw = await client.rpc(
+      'get_next_document_number',
+      params: {
+        'p_business_id': businessId,
+        'p_document_type': 'receipt',
+      },
+    );
+    final receiptNumber = receiptNumberRaw.toString();
+
+    final desc = (description ?? '').trim();
+    final lineItems = [
+      {
+        'description': desc.isNotEmpty
+            ? desc
+            : (customerName?.trim().isNotEmpty == true
+                ? 'Sale to ${customerName!.trim()}'
+                : 'Cash sale'),
+        'amount': amount,
+      }
+    ];
+
+    final paid = paidDate ?? DateTime.now();
+
+    final row = await client
+        .from('receipts')
+        .insert({
+          'business_id': businessId,
+          'invoice_id': null,
+          'receipt_number': receiptNumber,
+          'client_name': customerName?.trim().isNotEmpty == true
+              ? customerName!.trim()
+              : null,
+          'line_items': lineItems,
+          'total_amount': amount,
+          'payment_method': paymentMethod,
+          'paid_date': paid.toUtc().toIso8601String(),
+        })
+        .select()
+        .single();
+
+    log.info('createSale — done receipt=${row['receipt_number']} (${sw.elapsedMilliseconds}ms)');
+    return Map<String, dynamic>.from(row);
+  }
+
   // ── Expense mutation ───────────────────────────────────────────────────────
 
   /// Insert a new expense for [businessId]. Mirrors the columns the

@@ -102,7 +102,7 @@ List<Recommendation> buildRecommendations({
       title: 'Your records are up to date',
       why:
           'Keep logging sales and expenses — consistent records are the foundation of funding readiness.',
-      cta: 'Open Money',
+      cta: 'Open Finance',
       minutes: 0,
       impact: 'Keep going',
     ));

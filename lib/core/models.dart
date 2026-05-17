@@ -391,12 +391,6 @@ class FundingStage {
   const FundingStage({required this.id, required this.label, required this.status, required this.detail});
 }
 
-class Lender {
-  final String id, name, product, rate;
-  final int max, match;
-  const Lender({required this.id, required this.name, required this.product, required this.rate, required this.max, required this.match});
-}
-
 class MarketplaceCategory {
   final String id, name, icon;
   final int count;
@@ -411,11 +405,6 @@ class MarketplaceProvider {
     required this.id, required this.name, required this.rating,
     required this.reviews, required this.tag, required this.from, required this.category,
   });
-}
-
-class ActivityItem {
-  final String id, time, text, kind;
-  const ActivityItem({required this.id, required this.time, required this.text, required this.kind});
 }
 
 // Tier ladder

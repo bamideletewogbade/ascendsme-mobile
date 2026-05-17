@@ -4,6 +4,7 @@ import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 import '../core/models.dart';
 import '../core/mock_data.dart';
+import '../core/recommendations.dart';
 import '../state/app_state.dart';
 import 'home_skeleton.dart';
 import 'recommendations_screen.dart';
@@ -32,6 +33,13 @@ class HomeScreen extends StatelessWidget {
     if (state.user != null && !state.hasRealBusiness) {
       return const HomeSkeleton();
     }
+    final recs = buildRecommendations(
+      business: state.business,
+      financials: state.financials,
+      invoices: state.invoices,
+    );
+    final showAllLink = recs.length > 3;
+
     return SafeArea(
       bottom: false,
       child: ListView(
@@ -47,26 +55,26 @@ class HomeScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
             child: SectionHeader(
               'Top actions',
-              action: 'View all',
-              onAction: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      RecommendationsScreen(onAction: onAction),
+              action: showAllLink ? 'View all' : null,
+              onAction: showAllLink
+                  ? () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => RecommendationsScreen(
+                              recs: recs, onAction: onAction),
+                        ),
+                      )
+                  : null,
+            ),
+          ),
+          ...recs.take(3).map(
+                (r) => Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                  child: _RecommendationCard(rec: r, onAction: onAction),
                 ),
               ),
-            ),
-          ),
-          ...kRecommendations.take(3).map(
-            (r) => Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: _RecommendationCard(rec: r, onAction: onAction),
-            ),
-          ),
           const SizedBox(height: 8),
           const _DailyBrief(),
-          const SizedBox(height: 20),
-          const _ActivityFeed(),
         ],
       ),
     );
@@ -316,59 +324,6 @@ class _DailyBriefState extends State<_DailyBrief> {
   }
 }
 
-// ── Activity feed ──────────────────────────────────────────────────────────
-class _ActivityFeed extends StatelessWidget {
-  const _ActivityFeed();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SectionHeader('Recent activity'),
-          ...kActivity.map((item) => _ActivityRow(item: item)),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActivityRow extends StatelessWidget {
-  final ActivityItem item;
-  const _ActivityRow({required this.item});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final dotColor = switch (item.kind) {
-      'payment' => c.green,
-      'alert'   => c.amber,
-      'booking' => c.teal,
-      _         => c.textMuted,
-    };
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 5),
-            child: Container(
-                width: 8, height: 8,
-                decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-              child: Text(item.text, style: AppType.body(size: 13, color: c.text))),
-          const SizedBox(width: 8),
-          Text(item.time, style: AppType.body(size: 11.5, color: c.textMuted)),
-        ],
-      ),
-    );
-  }
-}
 
 // ── Cash flow snapshot ─────────────────────────────────────────────────────
 class _CashFlow extends StatelessWidget {

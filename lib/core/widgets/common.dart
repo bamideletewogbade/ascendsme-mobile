@@ -551,7 +551,7 @@ class BottomNav extends StatelessWidget {
 
   static const _tabs = [
     (AppTab.home,      'Home',      Icons.home_outlined,                  Icons.home),
-    (AppTab.money,     'Money',     Icons.account_balance_wallet_outlined, Icons.account_balance_wallet),
+    (AppTab.finance,   'Finance',   Icons.account_balance_wallet_outlined, Icons.account_balance_wallet),
     (AppTab.customers, 'Customers', Icons.people_alt_outlined,             Icons.people_alt),
     (AppTab.profile,   'Profile',   Icons.person_outline,                  Icons.person),
   ];

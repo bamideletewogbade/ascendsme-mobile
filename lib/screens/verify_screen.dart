@@ -5,7 +5,6 @@ import '../core/widgets/common.dart';
 import '../core/models.dart';
 import '../core/mock_data.dart';
 import '../state/app_state.dart';
-import 'lender_offer_screen.dart';
 import 'verify_step_screen.dart';
 
 class VerifyScreen extends StatelessWidget {
@@ -25,9 +24,16 @@ class VerifyScreen extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: 120),
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-            child: Text('Verify & Trust',
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+            child: Text('Records & Readiness',
                 style: AppType.display(size: 28, color: c.text)),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: Text(
+              "Keep your records up to date so you're ready when a grant or lender opportunity comes your way. You don't have to apply for anything yet — just keep going.",
+              style: AppType.body(size: 13, color: c.textMuted),
+            ),
           ),
 
           // Trust profile card
@@ -143,25 +149,47 @@ class VerifyScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
 
-          // Matched lenders
+          // Funding opportunities — placeholder until we curate a real list
+          // (grants like Tony Elumelu Foundation, MasterCard Foundation, GIRSAL,
+          // industry-specific programs). The previous "Matched lenders" UI
+          // showed real-looking offers with a stubbed Apply button, which is
+          // worse than no list at all.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SectionHeader('Matched lenders'),
-                ...kLenders.map((l) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _LenderCard(
-                        lender: l,
-                        onView: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => LenderOfferScreen(lender: l),
-                          ),
-                        ),
+                SectionHeader('Funding opportunities'),
+                AppCard(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.savings_outlined,
+                              size: 22, color: c.tealDeep),
+                          const SizedBox(width: 10),
+                          Text('Coming soon',
+                              style: AppType.heading(
+                                  size: 15, color: c.text)),
+                        ],
                       ),
-                    )),
+                      const SizedBox(height: 8),
+                      Text(
+                        "We're curating grants, accelerators, and SME-friendly programs (Tony Elumelu Foundation, MasterCard Foundation, GIRSAL, industry-specific funds) and will surface the ones that fit your business here.",
+                        style:
+                            AppType.body(size: 13, color: c.textMuted),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'In the meantime, complete your checklist above so you\'re ready when an opportunity lands.',
+                        style: AppType.body(
+                            size: 12.5, color: c.textFaint),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -302,82 +330,3 @@ class _FundingRow extends StatelessWidget {
   }
 }
 
-class _LenderCard extends StatelessWidget {
-  final Lender lender;
-  final VoidCallback onView;
-
-  const _LenderCard({required this.lender, required this.onView});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return AppCard(
-      onTap: onView,
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(lender.name,
-                        style: AppType.body(
-                            size: 14, weight: FontWeight.w700, color: c.text)),
-                    Text(lender.product,
-                        style: AppType.body(size: 12, color: c.textMuted)),
-                  ],
-                ),
-              ),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                decoration: BoxDecoration(
-                  color: c.tealSurface,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text('${lender.match}% match',
-                    style: AppType.body(
-                        size: 12, weight: FontWeight.w700, color: c.tealDeep)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Max loan',
-                      style: AppType.body(size: 11, color: c.textMuted)),
-                  Text(
-                      'GHS ${(lender.max / 1000).toStringAsFixed(0)}k',
-                      style: AppType.body(
-                          size: 14, weight: FontWeight.w600, color: c.text)),
-                ],
-              ),
-              const SizedBox(width: 24),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Interest rate',
-                      style: AppType.body(size: 11, color: c.textMuted)),
-                  Text('${lender.rate} p.a.',
-                      style: AppType.body(
-                          size: 14, weight: FontWeight.w600, color: c.text)),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          AppBtn('View offer →',
-              variant: BtnVariant.outline,
-              fontSize: 13,
-              onTap: onView),
-        ],
-      ),
-    );
-  }
-}

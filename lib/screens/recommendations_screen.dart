@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 import '../core/tokens.dart';
 import '../core/widgets/common.dart';
-import '../core/mock_data.dart';
 import '../core/models.dart';
 
 /// Full list of recommendations — pushed from Home when the user taps
-/// "View all" in the Top actions section. v0.1 is read-only mock content;
-/// Phase 3+ will pull personalised recommendations from the backend.
+/// "View all" in the Top actions section. Recs are computed by
+/// [buildRecommendations] on the home screen and passed in, so this screen
+/// stays presentational.
 class RecommendationsScreen extends StatelessWidget {
+  final List<Recommendation> recs;
   final void Function(String actionId) onAction;
 
-  const RecommendationsScreen({super.key, required this.onAction});
+  const RecommendationsScreen({
+    super.key,
+    required this.recs,
+    required this.onAction,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -25,7 +30,7 @@ class RecommendationsScreen extends StatelessWidget {
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
-                children: kRecommendations
+                children: recs
                     .map((r) => Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: _Card(rec: r, onAction: (id) {

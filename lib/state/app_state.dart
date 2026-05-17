@@ -8,7 +8,7 @@ import '../services/ai_service.dart';
 import '../services/app_logger.dart';
 import '../services/supabase_service.dart';
 
-enum AppTab { home, money, customers, profile }
+enum AppTab { home, finance, customers, profile }
 
 enum NavVariant { classic, pill, fab }
 

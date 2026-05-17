@@ -18,34 +18,6 @@ const kBusiness = Business(
   pipeline: 12600,
 );
 
-// ─── Recommendations ─────────────────────────
-const kRecommendations = [
-  Recommendation(
-    id: 'r1', priority: 'urgent',
-    title: "Log this month's expenses to unlock your Bank-Ready Report",
-    why: 'We see GHS 18,420 in revenue but no expenses logged for May. Your P&L is incomplete.',
-    cta: 'Log Expenses', minutes: 4, impact: 'Unlocks margin view',
-  ),
-  Recommendation(
-    id: 'r2', priority: 'high',
-    title: 'Follow up on 3 unpaid invoices over GHS 2,000',
-    why: 'Two invoices to Kente Co. are 12 days overdue. A polite WhatsApp reminder usually closes 60% of these.',
-    cta: 'Send Reminders', minutes: 2, impact: 'GHS 4,280',
-  ),
-  Recommendation(
-    id: 'r3', priority: 'medium',
-    title: 'Apply to the Stanbic Women in Business facility',
-    why: 'You qualify based on your verified revenue and 18-month operating history.',
-    cta: 'Start Application', minutes: 12, impact: 'up to GHS 80,000',
-  ),
-  Recommendation(
-    id: 'r4', priority: 'low',
-    title: 'Add 2 more product photos to your public shop',
-    why: 'Listings with 4+ photos get 2.3× more orders.',
-    cta: 'Open Shop', minutes: 6, impact: '2.3× more orders',
-  ),
-];
-
 // ─── Tips ─────────────────────────────────────
 const kTips = [
   Tip(id: 't1', tag: 'Cash flow', text: 'Invoice on the same day a service is delivered — paid 8 days faster on average.'),
@@ -53,11 +25,14 @@ const kTips = [
 ];
 
 // ─── Quick actions ────────────────────────────
+// Order matters: most-frequent actions first. Sale and Invoice cover the two
+// shapes of incoming money (paid now vs bill-to-send). Expense covers outgoing.
+// Booking stays for service-based businesses (tailors, salons).
 const kQuickActions = [
+  QuickAction(id: 'sale',     label: 'Log sale',     icon: 'payments',     tone: 'teal'),
   QuickAction(id: 'invoice',  label: 'New invoice',  icon: 'description',  tone: 'teal'),
-  QuickAction(id: 'booking',  label: 'New booking',  icon: 'calendar',     tone: 'orange'),
-  QuickAction(id: 'expense',  label: 'Log expense',  icon: 'receipt',      tone: 'neutral'),
-  QuickAction(id: 'customer', label: 'Add customer', icon: 'person_add',   tone: 'neutral'),
+  QuickAction(id: 'expense',  label: 'Log expense',  icon: 'receipt',      tone: 'orange'),
+  QuickAction(id: 'booking',  label: 'New booking',  icon: 'calendar',     tone: 'neutral'),
 ];
 
 // ─── Tools ───────────────────────────────────
@@ -100,12 +75,6 @@ const kFundingStages = [
   FundingStage(id: 'f5', label: 'Disbursement',        status: 'todo',   detail: ''),
 ];
 
-const kLenders = [
-  Lender(id: 'l1', name: 'Stanbic Bank',  product: 'Women in Business',    max: 80000, rate: '18%', match: 92),
-  Lender(id: 'l2', name: 'Fidelity Bank', product: 'Orange SME',           max: 50000, rate: '20%', match: 81),
-  Lender(id: 'l3', name: 'Letshego',      product: 'Quick Working Capital', max: 25000, rate: '24%', match: 76),
-];
-
 // ─── Marketplace ──────────────────────────────
 const kMarketplaceCategories = [
   MarketplaceCategory(id: 'm1', name: 'Accounting & Tax', count: 38, icon: 'calculate'),
@@ -120,14 +89,6 @@ const kMarketplaceFeatured = [
   MarketplaceProvider(id: 'sp1', name: 'Nimo & Co. Accountants', rating: 4.9, reviews: 142, tag: 'GRA-certified', from: 350, category: 'Accounting & Tax'),
   MarketplaceProvider(id: 'sp2', name: 'Bloom Visuals',           rating: 4.8, reviews: 86,  tag: 'Verified',     from: 800, category: 'Photography'),
   MarketplaceProvider(id: 'sp3', name: 'Adinkra Web Studio',      rating: 4.7, reviews: 53,  tag: 'Top Rated',    from: 1200, category: 'Web & Branding'),
-];
-
-// ─── Activity feed ────────────────────────────
-const kActivity = [
-  ActivityItem(id: 'a1', time: '14m', text: 'Yaa Boutique paid INV-0140 — GHS 3,200',     kind: 'payment'),
-  ActivityItem(id: 'a2', time: '2h',  text: 'Inventory alert: Kente skirt (size M) low',  kind: 'alert'),
-  ActivityItem(id: 'a3', time: '5h',  text: 'New booking from Linda Mensah — Sat 11:00',  kind: 'booking'),
-  ActivityItem(id: 'a4', time: '1d',  text: 'AM Kojo verified your Stanbic statement',    kind: 'verify'),
 ];
 
 // ─── AI system context ────────────────────────
