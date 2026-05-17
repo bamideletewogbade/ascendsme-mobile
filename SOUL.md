@@ -115,14 +115,14 @@ The in-app assistant accessible via the FAB on the Home tab. Code: [lib/screens/
 
 ---
 
-## Gamification ethos
+## What we do NOT do
 
-Quests and scores ([lib/state/app_state.dart](lib/state/app_state.dart) `completeQuest`, `kInitialQuests`) exist to reward **real business hygiene** — logging expenses, following up on overdue invoices, completing verification. Never to drive engagement for its own sake.
+AscendSME is a business tool for owner-operators, not a consumer productivity app. Two patterns are explicitly excluded:
 
-- A quest must map to an action that improves the user's actual business — bank-readiness, cash flow, compliance.
-- Streak loss should never be punitive (no scary red, no "you broke your streak!"). A missed day is fine.
-- Score increases are celebrated specifically (`ScoreUpEvent` names the points + the action). Score never decreases as a punishment.
-- Confetti is allowed. Guilt is not.
+- **No gamification.** No streaks, no daily quests, no points, no tier celebrations, no confetti. An auntie running a tailor shop follows up on an overdue invoice because she needs the money — not for a "+3 pts" reward. We removed the entire quests/scores/ScoreUpOverlay layer in Phase 2 for this reason.
+- **No engagement metrics for their own sake.** A "Business Health" or "Lender Score" can return later, but only if it maps to a real underwriting signal (verified revenue, GRA filings, KYB completion). Strip the consumer-app coat; keep the business signal.
+
+If you find yourself adding a chip, badge, or counter that doesn't change a real business outcome — delete it.
 
 ---
 

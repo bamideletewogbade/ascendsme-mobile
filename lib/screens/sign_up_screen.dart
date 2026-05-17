@@ -87,6 +87,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
     });
   }
 
+  Future<void> _signUpWithGoogle() async {
+    log.info('SignUpScreen — Google sign-up tapped');
+    final state = context.read<AppState>();
+    state.clearAuthError();
+    await state.signInWithGoogle();
+    // Session arrives via the auth stream listener. _AuthGate transitions to
+    // AppShell. Phase 2 will add a "Complete your business profile" screen
+    // for new Google users whose handle_new_user trigger left fields blank.
+  }
+
   Future<void> _submit() async {
     setState(() => _localError = null);
 
@@ -215,8 +225,10 @@ class _SignUpScreenState extends State<SignUpScreen> {
                           industry: _industry,
                           onIndustryChanged: (v) =>
                               setState(() => _industry = v),
-                          error: _localError,
+                          error: _localError ?? state.authError,
                           onNext: _nextStep,
+                          onGoogleSignIn: _signUpWithGoogle,
+                          googleLoading: state.authLoading,
                         )
                       : _step == 1
                           ? _AccountStep(
@@ -262,6 +274,8 @@ class _BusinessStep extends StatelessWidget {
   final ValueChanged<String> onIndustryChanged;
   final String? error;
   final VoidCallback onNext;
+  final VoidCallback onGoogleSignIn;
+  final bool googleLoading;
 
   const _BusinessStep({
     super.key,
@@ -274,6 +288,8 @@ class _BusinessStep extends StatelessWidget {
     required this.onIndustryChanged,
     required this.error,
     required this.onNext,
+    required this.onGoogleSignIn,
+    required this.googleLoading,
   });
 
   @override
@@ -287,7 +303,31 @@ class _BusinessStep extends StatelessWidget {
         const SizedBox(height: 6),
         Text("Tell us a bit about you and your business.",
             style: AppType.body(size: 14, color: c.textMuted)),
-        const SizedBox(height: 28),
+        const SizedBox(height: 24),
+
+        // Google shortcut — for users who'd rather skip the email/password
+        // form. After auth, we'll prompt for business name + phone + industry
+        // in a follow-up onboarding step (Phase 2 work).
+        GoogleSignInButton(
+          onPressed: onGoogleSignIn,
+          loading: googleLoading,
+          label: 'Sign up with Google',
+        ),
+        const SizedBox(height: 16),
+
+        Row(
+          children: [
+            Expanded(child: Divider(color: c.border)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text('or with email',
+                  style: AppType.label(size: 11, color: c.textFaint)),
+            ),
+            Expanded(child: Divider(color: c.border)),
+          ],
+        ),
+
+        const SizedBox(height: 20),
 
         _SignUpField(
           label: 'Your name',

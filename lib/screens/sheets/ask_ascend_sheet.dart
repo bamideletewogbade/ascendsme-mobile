@@ -23,9 +23,9 @@ class _AskAscendSheetState extends State<AskAscendSheet> {
 
   static const _suggestions = [
     'What should I focus on today?',
-    'How can I improve my score faster?',
-    'Draft a reminder for Kente Co.',
-    'Explain my cash flow this month',
+    'How is my business doing this month?',
+    'Help me draft a follow-up reminder',
+    'Explain my cash flow',
   ];
 
   @override
@@ -353,9 +353,9 @@ class _ChatBubble extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 12, left: 56),
           padding:
               const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          decoration: const BoxDecoration(
-            color: Color(0xFF00A99D),
-            borderRadius: BorderRadius.only(
+          decoration: BoxDecoration(
+            color: c.teal,
+            borderRadius: const BorderRadius.only(
               topLeft: Radius.circular(16),
               topRight: Radius.circular(16),
               bottomLeft: Radius.circular(16),

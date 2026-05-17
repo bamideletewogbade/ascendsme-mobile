@@ -44,6 +44,16 @@ class _SignInScreenState extends State<SignInScreen> {
     // AppShell. No manual Navigator work needed here.
   }
 
+  Future<void> _signInWithGoogle() async {
+    log.info('SignInScreen — Google sign-in tapped');
+    final state = context.read<AppState>();
+    state.clearAuthError();
+    await state.signInWithGoogle();
+    // The session arrives via the auth stream listener (signedIn event) and
+    // _AuthGate switches to AppShell. If the user cancels the OAuth flow,
+    // _authLoading remains true until they tap again or sign in another way.
+  }
+
   void _openForgotPassword() {
     log.info('SignInScreen — forgot password tapped');
     showModalBottomSheet(
@@ -73,7 +83,7 @@ class _SignInScreenState extends State<SignInScreen> {
               // ── Brand ─────────────────────────────────
               Row(
                 children: [
-                  const AppMonogram(size: 36),
+                  // const AppMonogram(size: 36),
                   const SizedBox(width: 10),
                   Text('AscendSME',
                       style: AppType.heading(size: 22, color: c.text)),
@@ -235,44 +245,8 @@ class _SignInScreenState extends State<SignInScreen> {
 
               const SizedBox(height: 18),
 
-              // ── Phone option ──────────────────────────
-              GestureDetector(
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Phone sign-in coming soon.',
-                        style: AppType.body(size: 13, color: Colors.white),
-                      ),
-                      backgroundColor: c.tealDeep,
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                  );
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      vertical: 14, horizontal: 18),
-                  decoration: BoxDecoration(
-                    color: c.bgElevated,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: c.borderStrong),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.phone_outlined, size: 18, color: c.text),
-                      const SizedBox(width: 10),
-                      Text('Continue with phone',
-                          style: AppType.body(
-                              size: 14,
-                              weight: FontWeight.w600,
-                              color: c.text)),
-                    ],
-                  ),
-                ),
-              ),
+              // ── Google sign-in ────────────────────────
+              GoogleSignInButton(onPressed: _signInWithGoogle),
 
               const SizedBox(height: 40),
 

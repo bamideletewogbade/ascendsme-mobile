@@ -4,15 +4,14 @@ import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 import '../state/app_state.dart';
 import 'home_screen.dart';
-import 'tools_screen.dart';
+import 'money_screen.dart';
+import 'customers_screen.dart';
+import 'profile_screen.dart';
 import 'tools/invoices_screen.dart';
-import 'verify_screen.dart';
-import 'help_screen.dart';
 import 'sheets/profile_drawer.dart';
 import 'sheets/notifications_sheet.dart';
 import 'sheets/new_invoice_sheet.dart';
 import 'sheets/ask_ascend_sheet.dart';
-import 'sheets/score_up_overlay.dart';
 
 class AppShell extends StatelessWidget {
   const AppShell({super.key});
@@ -57,13 +56,12 @@ class _AppShellBodyState extends State<_AppShellBody> {
       case 'askAI':
         _openAI();
       case 'followup':
-        _openAI('Draft a polite WhatsApp reminder for Kente Co. for INV-0142 '
-            '(12 days overdue, GHS 2,400). Use a warm, professional tone.');
+        _openAI('I have overdue invoices. Draft a polite, professional WhatsApp '
+            'follow-up reminder I can send to the customer. Keep it warm and brief.');
       case 'expense':
-        final q = context.read<AppState>().quests.firstWhere(
-            (q) => q.id == 'q1' && !q.done,
-            orElse: () => context.read<AppState>().quests.first);
-        if (!q.done) context.read<AppState>().completeQuest(q);
+        // TODO(phase-3): wire to a Log-Expense sheet. For now this is a no-op
+        // since quests/score completion is gone.
+        break;
       case 'booking':
         _pushTool(ctx, 'booking');
     }
@@ -104,15 +102,11 @@ class _AppShellBodyState extends State<_AppShellBody> {
                     children: [
                       HomeScreen(
                         onAction: (id) => _handleAction(context, id),
-                        onTool: (id) => _pushTool(context, id),
                         onOpenDrawer: () => setState(() => _drawerOpen = true),
                       ),
-                      ToolsScreen(
-                        onTool: (id) => _pushTool(context, id),
-                        onNewInvoice: _openNewInvoice,
-                      ),
-                      const VerifyScreen(),
-                      const HelpScreen(),
+                      const MoneyScreen(),
+                      const CustomersScreen(),
+                      const ProfileScreen(),
                     ],
                   ),
                 ),
@@ -159,13 +153,6 @@ class _AppShellBodyState extends State<_AppShellBody> {
               context.read<AppState>().signOut();
             },
           ),
-
-          // ── Score-up celebration ───────────
-          if (state.scoreUp != null)
-            ScoreUpOverlay(
-              event: state.scoreUp!,
-              onClose: () => context.read<AppState>().clearScoreUp(),
-            ),
         ],
       ),
     );

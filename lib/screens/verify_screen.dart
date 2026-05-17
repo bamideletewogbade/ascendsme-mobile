@@ -14,8 +14,8 @@ class VerifyScreen extends StatelessWidget {
     final c = context.colors;
     final state = context.watch<AppState>();
     final business = state.business;
-    final tier = getTier(state.score);
-    final next = getNextTier(state.score);
+    final tier = getTier(business.sustainabilityScore);
+    final next = getNextTier(business.sustainabilityScore);
 
     return SafeArea(
       bottom: false,
@@ -38,7 +38,7 @@ class VerifyScreen extends StatelessWidget {
                   Row(
                     children: [
                       TierRing(
-                          score: state.score,
+                          score: business.sustainabilityScore,
                           initials: business.initials,
                           size: 56),
                       const SizedBox(width: 16),
@@ -73,7 +73,7 @@ class VerifyScreen extends StatelessWidget {
                     children: [
                       _StatBox(
                           label: 'Sustainability',
-                          value: '${state.score}',
+                          value: '${business.sustainabilityScore}',
                           sub: '/ 100'),
                       Container(
                           width: 1, height: 36, color: c.border,

@@ -9,9 +9,12 @@ import 'app_logger.dart';
 // ─────────────────────────────────────────────
 // AIService — Gemini first, Groq for fast Llama, OpenRouter as fallback.
 // Switch models at runtime via AIService.currentModel.
+//
+// Fallback: if the selected provider fails (bad key, rate-limit, timeout),
+// ask() automatically tries the other providers before giving up.
 // ─────────────────────────────────────────────
 class AIService {
-  static AIModel _currentModel = AIModel.groqLlama33;
+  static AIModel _currentModel = AIModel.geminiFlash;
 
   static AIModel get currentModel => _currentModel;
 
@@ -23,56 +26,168 @@ class AIService {
   /// Pass `business` and `financials` to ground the AI in the real signed-in
   /// profile; omit them to use mock fallbacks (useful from places without
   /// AppState).
+  ///
+  /// The business context is sent as a system message (or system-role prefix
+  /// for Gemini) so the model treats it as grounding, not as user
+  /// instructions. If the primary provider fails, we try the remaining
+  /// providers in order: Gemini → Groq → OpenRouter.
   static Future<String> ask(
     String userPrompt, {
-    int maxSentences = 3,
+    int maxSentences = 5,
     String? extraContext,
     Business? business,
     Financials? financials,
   }) async {
-    final ctx = extraContext ?? buildBizContext(business, financials);
-    final full =
-        '$ctx\n\nUser asks: $userPrompt\n\nRespond in at most $maxSentences short sentences. No markdown formatting.';
+    final systemCtx = extraContext ?? buildBizContext(business, financials);
 
-    log.debug('AIService.ask — model=${_currentModel.id} provider=${_currentModel.provider.name} promptLen=${full.length}');
+    log.debug(
+        'AIService.ask — model=${_currentModel.id} provider=${_currentModel.provider.name} promptLen=${userPrompt.length}');
     final sw = Stopwatch()..start();
-    try {
-      String result;
-      switch (_currentModel.provider) {
-        case AIProvider.gemini:
-          result = await _gemini(full);
-        case AIProvider.groq:
-          result = await _groq(full);
-        case AIProvider.openRouter:
-          result = await _openRouter(full);
+
+    // Build the provider order: current first, then the rest as fallbacks.
+    final providers = <AIModel>[
+      _currentModel,
+      ..._fallbackModels(_currentModel),
+    ];
+
+    for (final model in providers) {
+      try {
+        final result = await _dispatch(model, systemCtx, userPrompt);
+        if (result.startsWith('(Add your')) {
+          // Missing API key — skip to next provider silently.
+          log.debug(
+              'AIService.ask — ${model.provider.name} skipped (no API key)');
+          continue;
+        }
+        log.info(
+            'AIService.ask — ok via ${model.provider.name} responseLen=${result.length} (${sw.elapsedMilliseconds}ms)');
+        return result;
+      } catch (e, st) {
+        log.warning(
+            'AIService.ask — ${model.provider.name} failed, trying next',
+            error: e,
+            stackTrace: st);
+        continue;
       }
-      log.info('AIService.ask — ok responseLen=${result.length} (${sw.elapsedMilliseconds}ms)');
-      return result;
+    }
+
+    log.error('AIService.ask — all providers failed',
+        error: 'exhausted fallback chain');
+    return '(AI unavailable — check your connection and try again in a moment)';
+  }
+
+  /// Specialized: parse a natural-language invoice description into JSON.
+  static Future<Map<String, dynamic>?> parseInvoice(String description) async {
+    log.debug(
+        'parseInvoice — model=${_currentModel.id} desc="$description"');
+    const systemPrompt = '''You are a JSON-only assistant inside an invoicing app for Ghanaian SMEs.
+Extract the customer name and total amount from the user's description.
+Rules:
+- Assume amounts are in GHS unless another currency is explicitly stated.
+- If the user gives a description but no customer name, set customer to an empty string.
+- If the user gives a description but no amount, set amount to 0.
+- Return STRICTLY a JSON object with this shape: {"customer":"...","amount":0}
+- No prose, no markdown, no explanation — just the JSON object.''';
+
+    // Build the provider order: current first, then fallbacks.
+    final providers = <AIModel>[
+      _currentModel,
+      ..._fallbackModels(_currentModel),
+    ];
+
+    try {
+      for (final model in providers) {
+        try {
+          final result = await _dispatch(
+            model,
+            systemPrompt,
+            description,
+            maxTokens: 60,
+            temperature: 0,
+          );
+          if (result.startsWith('(Add your')) continue;
+
+          final match = RegExp(r'\{[\s\S]*\}').firstMatch(result);
+          if (match != null) {
+            final parsed =
+                jsonDecode(match.group(0)!) as Map<String, dynamic>;
+            log.debug(
+                'parseInvoice — parsed customer="${parsed['customer']}" amount=${parsed['amount']}');
+            return parsed;
+          }
+          log.warning(
+              'parseInvoice — no JSON object found in ${model.provider.name} response: "$result"');
+        } catch (e, st) {
+          log.warning(
+              'parseInvoice — ${model.provider.name} failed, trying next',
+              error: e,
+              stackTrace: st);
+          continue;
+        }
+      }
     } catch (e, st) {
-      log.error('AIService.ask failed', error: e, stackTrace: st);
-      return '(AI unavailable — try again in a moment)';
+      log.error('parseInvoice failed', error: e, stackTrace: st);
+    }
+    return null;
+  }
+
+  // ── Provider dispatch ──────────────────────────────────────────────────────
+
+  /// Unified dispatch to any provider. Splits system/user messages properly
+  /// for each API format.
+  static Future<String> _dispatch(
+    AIModel model,
+    String systemPrompt,
+    String userMessage, {
+    int maxTokens = 256,
+    double temperature = 0.7,
+  }) async {
+    switch (model.provider) {
+      case AIProvider.gemini:
+        return _gemini(model, systemPrompt, userMessage,
+            maxTokens: maxTokens, temperature: temperature);
+      case AIProvider.groq:
+        return _groq(model, systemPrompt, userMessage,
+            maxTokens: maxTokens, temperature: temperature);
+      case AIProvider.openRouter:
+        return _openRouter(model, systemPrompt, userMessage,
+            maxTokens: maxTokens, temperature: temperature);
     }
   }
 
   // ── Gemini ─────────────────────────────────
-  static Future<String> _gemini(String prompt) async {
+  static Future<String> _gemini(
+    AIModel model,
+    String systemPrompt,
+    String userMessage, {
+    required int maxTokens,
+    required double temperature,
+  }) async {
     if (AppConfig.geminiApiKey.isEmpty) {
       return '(Add your Gemini API key in lib/config.dart to enable AI · Get one free at aistudio.google.com)';
     }
-    final model = GenerativeModel(
-      model: _currentModel.id,
+    final generativeModel = GenerativeModel(
+      model: model.id,
       apiKey: AppConfig.geminiApiKey,
+      systemInstruction: Content.text(systemPrompt),
       generationConfig: GenerationConfig(
-        maxOutputTokens: 256,
-        temperature: 0.7,
+        maxOutputTokens: maxTokens,
+        temperature: temperature,
       ),
     );
-    final response = await model.generateContent([Content.text(prompt)]);
+    final response = await generativeModel
+        .generateContent([Content.text(userMessage)]);
     return (response.text ?? '').trim();
   }
 
   // ── Groq (LPU inference — fast, OpenAI-compatible) ─────────────────────
-  static Future<String> _groq(String prompt) async {
+  static Future<String> _groq(
+    AIModel model,
+    String systemPrompt,
+    String userMessage, {
+    required int maxTokens,
+    required double temperature,
+  }) async {
     if (AppConfig.groqApiKey.isEmpty) {
       return '(Add your Groq API key in lib/config.dart · Free at console.groq.com)';
     }
@@ -84,24 +199,32 @@ class AIService {
             'Content-Type': 'application/json',
           },
           body: jsonEncode({
-            'model': _currentModel.id,
+            'model': model.id,
             'messages': [
-              {'role': 'user', 'content': prompt}
+              {'role': 'system', 'content': systemPrompt},
+              {'role': 'user', 'content': userMessage},
             ],
-            'max_tokens': 256,
-            'temperature': 0.7,
+            'max_tokens': maxTokens,
+            'temperature': temperature,
           }),
         )
         .timeout(const Duration(seconds: 15));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      return ((data['choices'][0]['message']['content'] as String?) ?? '').trim();
+      return ((data['choices'][0]['message']['content'] as String?) ?? '')
+          .trim();
     }
     throw Exception('Groq ${response.statusCode}: ${response.body}');
   }
 
   // ── OpenRouter (Llama / any free model) ────
-  static Future<String> _openRouter(String prompt) async {
+  static Future<String> _openRouter(
+    AIModel model,
+    String systemPrompt,
+    String userMessage, {
+    required int maxTokens,
+    required double temperature,
+  }) async {
     if (AppConfig.openRouterApiKey.isEmpty) {
       return '(Add your OpenRouter API key in lib/config.dart · Free at openrouter.ai)';
     }
@@ -115,104 +238,36 @@ class AIService {
             'X-Title': 'AscendSME Mobile',
           },
           body: jsonEncode({
-            'model': _currentModel.id,
+            'model': model.id,
             'messages': [
-              {'role': 'user', 'content': prompt}
+              {'role': 'system', 'content': systemPrompt},
+              {'role': 'user', 'content': userMessage},
             ],
-            'max_tokens': 256,
-            'temperature': 0.7,
+            'max_tokens': maxTokens,
+            'temperature': temperature,
           }),
         )
         .timeout(const Duration(seconds: 20));
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body);
-      return ((data['choices'][0]['message']['content'] as String?) ?? '').trim();
+      return ((data['choices'][0]['message']['content'] as String?) ?? '')
+          .trim();
     }
     throw Exception('OpenRouter ${response.statusCode}: ${response.body}');
   }
 
-  /// Specialized: parse a natural-language invoice description into JSON.
-  static Future<Map<String, dynamic>?> parseInvoice(String description) async {
-    log.debug('parseInvoice — model=${_currentModel.id} desc="$description"');
-    const systemPrompt = '''You are a JSON-only assistant inside an invoicing app.
-Extract the customer name and total amount in GHS from the user description.
-Return STRICTLY a JSON object: {"customer":"...","amount":0}
-No prose, no markdown, just the JSON.''';
-
-    try {
-      String result;
-      switch (_currentModel.provider) {
-        case AIProvider.gemini:
-          if (AppConfig.geminiApiKey.isEmpty) return null;
-          final model = GenerativeModel(
-            model: _currentModel.id,
-            apiKey: AppConfig.geminiApiKey,
-            generationConfig:
-                GenerationConfig(maxOutputTokens: 60, temperature: 0),
-          );
-          final resp = await model.generateContent(
-              [Content.text('$systemPrompt\n\nUser: $description')]);
-          result = resp.text ?? '';
-          break;
-        case AIProvider.groq:
-          if (AppConfig.groqApiKey.isEmpty) return null;
-          final resp = await http
-              .post(
-                Uri.parse('https://api.groq.com/openai/v1/chat/completions'),
-                headers: {
-                  'Authorization': 'Bearer ${AppConfig.groqApiKey}',
-                  'Content-Type': 'application/json',
-                },
-                body: jsonEncode({
-                  'model': _currentModel.id,
-                  'messages': [
-                    {'role': 'system', 'content': systemPrompt},
-                    {'role': 'user', 'content': description},
-                  ],
-                  'max_tokens': 60,
-                  'temperature': 0,
-                }),
-              )
-              .timeout(const Duration(seconds: 15));
-          result = resp.statusCode == 200
-              ? (jsonDecode(resp.body)['choices'][0]['message']['content'] ?? '')
-              : '';
-          break;
-        case AIProvider.openRouter:
-          if (AppConfig.openRouterApiKey.isEmpty) return null;
-          final resp = await http
-              .post(
-                Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
-                headers: {
-                  'Authorization': 'Bearer ${AppConfig.openRouterApiKey}',
-                  'Content-Type': 'application/json',
-                },
-                body: jsonEncode({
-                  'model': _currentModel.id,
-                  'messages': [
-                    {'role': 'system', 'content': systemPrompt},
-                    {'role': 'user', 'content': description},
-                  ],
-                  'max_tokens': 60,
-                  'temperature': 0,
-                }),
-              )
-              .timeout(const Duration(seconds: 20));
-          result = resp.statusCode == 200
-              ? (jsonDecode(resp.body)['choices'][0]['message']['content'] ?? '')
-              : '';
-          break;
-      }
-      final match = RegExp(r'\{[\s\S]*\}').firstMatch(result);
-      if (match != null) {
-        final parsed = jsonDecode(match.group(0)!) as Map<String, dynamic>;
-        log.debug('parseInvoice — parsed customer="${parsed['customer']}" amount=${parsed['amount']}');
-        return parsed;
-      }
-      log.warning('parseInvoice — no JSON object found in response: "$result"');
-    } catch (e, st) {
-      log.error('parseInvoice failed', error: e, stackTrace: st);
-    }
-    return null;
+  // ── Fallback ordering ─────────────────────────────────────────────────────
+  /// Returns one fallback model per provider that isn't the current model's
+  /// provider, in preference order: Gemini → Groq → OpenRouter.
+  static List<AIModel> _fallbackModels(AIModel current) {
+    const fallbacks = {
+      AIProvider.gemini: AIModel.geminiFlash,
+      AIProvider.groq: AIModel.groqLlama33,
+      AIProvider.openRouter: AIModel.llama33,
+    };
+    return [AIProvider.gemini, AIProvider.groq, AIProvider.openRouter]
+        .where((p) => p != current.provider)
+        .map((p) => fallbacks[p]!)
+        .toList();
   }
 }

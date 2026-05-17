@@ -89,10 +89,7 @@ class _DrawerContent extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              TierRing(
-                  score: state.score,
-                  initials: state.business.initials,
-                  size: 54),
+              AppAvatar(state.business.initials, size: 54),
               const SizedBox(height: 12),
               Text(state.business.name,
                   style: AppType.heading(size: 18, color: c.text)),
@@ -100,19 +97,6 @@ class _DrawerContent extends StatelessWidget {
                   style: AppType.body(size: 13, color: c.textMuted)),
               const SizedBox(height: 8),
               AppPill(state.business.tier, tone: PillTone.teal),
-            ],
-          ),
-        ),
-
-        // Stats row
-        Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-          child: Row(
-            children: [
-              _StatChip(label: 'Score', value: '${state.score}/100'),
-              const SizedBox(width: 10),
-              _StatChip(
-                  label: 'Streak', value: '${state.streak} days 🔥'),
             ],
           ),
         ),
@@ -129,44 +113,6 @@ class _DrawerContent extends StatelessWidget {
                 label: 'Dark mode',
                 value: state.darkMode,
                 onChanged: state.setDark,
-              ),
-
-              // Home layout
-              _DrawerSection(label: 'Home layout'),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Row(
-                  children: HomeLayout.values.map((layout) {
-                    final label = switch (layout) {
-                      HomeLayout.score  => 'Score',
-                      HomeLayout.agenda => 'Agenda',
-                      HomeLayout.cards  => 'Cards',
-                    };
-                    final active = state.homeLayout == layout;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: GestureDetector(
-                        onTap: () => state.setHomeLayout(layout),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: active ? c.teal : c.bgInset,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(label,
-                              style: AppType.body(
-                                  size: 12,
-                                  weight: FontWeight.w600,
-                                  color: active
-                                      ? Colors.white
-                                      : c.textMuted)),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
               ),
 
               // Nav style
@@ -247,34 +193,6 @@ class _DrawerContent extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _StatChip extends StatelessWidget {
-  final String label, value;
-
-  const _StatChip({required this.label, required this.value});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: c.bgInset,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        children: [
-          Text(value,
-              style: AppType.body(
-                  size: 13, weight: FontWeight.w700, color: c.text)),
-          const SizedBox(height: 2),
-          Text(label,
-              style: AppType.body(size: 10.5, color: c.textMuted)),
-        ],
-      ),
     );
   }
 }

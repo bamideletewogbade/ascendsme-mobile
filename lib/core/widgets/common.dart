@@ -408,6 +408,92 @@ class SectionHeader extends StatelessWidget {
 // ─────────────────────────────────────────────
 // SubScreenHeader — back button + title + optional action
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// GoogleSignInButton — outlined button matching the design system, used on
+// the sign-in and sign-up screens. The Google "G" is a flat colour-blocked
+// approximation drawn with Container rotated quadrants; avoids shipping a
+// raster asset just for one logo.
+// ─────────────────────────────────────────────
+class GoogleSignInButton extends StatelessWidget {
+  final VoidCallback onPressed;
+  final bool loading;
+  final String label;
+
+  const GoogleSignInButton({
+    super.key,
+    required this.onPressed,
+    this.loading = false,
+    this.label = 'Continue with Google',
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return GestureDetector(
+      onTap: loading ? null : onPressed,
+      child: Container(
+        height: 50,
+        padding: const EdgeInsets.symmetric(horizontal: 18),
+        decoration: BoxDecoration(
+          color: c.bgElevated,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: c.borderStrong),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (loading)
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  valueColor: AlwaysStoppedAnimation(c.text),
+                ),
+              )
+            else
+              const _GoogleGlyph(size: 18),
+            const SizedBox(width: 12),
+            Text(label,
+                style: AppType.body(
+                    size: 14, weight: FontWeight.w600, color: c.text)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GoogleGlyph extends StatelessWidget {
+  final double size;
+  const _GoogleGlyph({this.size = 18});
+
+  @override
+  Widget build(BuildContext context) {
+    // Simplified Google "G" mark — colour-blocked, not the official SVG, but
+    // recognisable. Replace with the official asset before public release.
+    return SizedBox(
+      width: size,
+      height: size,
+      child: const Stack(
+        alignment: Alignment.center,
+        children: [
+          Text(
+            'G',
+            style: TextStyle(
+              fontFamily: 'Roboto',
+              fontWeight: FontWeight.w700,
+              fontSize: 17,
+              color: Color(0xFF4285F4),
+              height: 1.0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class SubScreenHeader extends StatelessWidget {
   final String title;
   final VoidCallback onBack;
@@ -464,10 +550,10 @@ class BottomNav extends StatelessWidget {
   });
 
   static const _tabs = [
-    (AppTab.home,   'Home',   Icons.home_outlined,    Icons.home),
-    (AppTab.tools,  'Tools',  Icons.build_outlined,   Icons.build),
-    (AppTab.verify, 'Verify', Icons.shield_outlined,  Icons.shield),
-    (AppTab.help,   'Help',   Icons.help_outline,     Icons.help),
+    (AppTab.home,      'Home',      Icons.home_outlined,                  Icons.home),
+    (AppTab.money,     'Money',     Icons.account_balance_wallet_outlined, Icons.account_balance_wallet),
+    (AppTab.customers, 'Customers', Icons.people_alt_outlined,             Icons.people_alt),
+    (AppTab.profile,   'Profile',   Icons.person_outline,                  Icons.person),
   ];
 
   @override

@@ -8,9 +8,7 @@ import '../services/ai_service.dart';
 import '../services/app_logger.dart';
 import '../services/supabase_service.dart';
 
-enum AppTab { home, tools, verify, help }
-
-enum HomeLayout { score, agenda, cards }
+enum AppTab { home, money, customers, profile }
 
 enum NavVariant { classic, pill, fab }
 
@@ -94,8 +92,7 @@ class AppState extends ChangeNotifier {
         _invoices = [];
       } else {
         _business = Business.fromRow(row);
-        _score = _business!.sustainabilityScore;
-        log.info('loadBusiness — loaded: id=${_business!.id} name="${_business!.name}" score=${_business!.sustainabilityScore} (${sw.elapsedMilliseconds}ms)');
+        log.info('loadBusiness — loaded: id=${_business!.id} name="${_business!.name}" (${sw.elapsedMilliseconds}ms)');
       }
       notifyListeners();
       if (_business?.id != null) {
@@ -345,6 +342,39 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Start the Google OAuth flow. Launches the system browser; the actual
+  /// session lands via the auth stream listener (handleAuthChange) once the
+  /// `ascendsme://auth-callback` deep link fires. Returns true if the browser
+  /// successfully launched.
+  Future<bool> signInWithGoogle() async {
+    log.info('signInWithGoogle — supabaseConfigured=$supabaseConfigured');
+    if (!supabaseConfigured) {
+      // Mock mode — flip the local flag so the UI advances. Real OAuth needs
+      // Supabase keys + dashboard provider config.
+      _mockAuthed = true;
+      notifyListeners();
+      return true;
+    }
+    _authLoading = true;
+    _authError = null;
+    notifyListeners();
+    try {
+      final launched = await SupabaseService.signInWithGoogle();
+      log.info('signInWithGoogle — browser launched=$launched');
+      // _authLoading stays true until the auth stream fires signedIn (which
+      // clears it via handleAuthChange) or the user cancels. We don't know
+      // here which happened; cancellation is recovered by tapping Sign in
+      // again, which calls clearAuthError.
+      return launched;
+    } catch (e, st) {
+      log.error('signInWithGoogle failed', error: e, stackTrace: st);
+      _authLoading = false;
+      _authError = 'Google sign-in failed. Check your connection and try again.';
+      notifyListeners();
+      return false;
+    }
+  }
+
   void signOut() {
     log.info('signOut — userId=${_user?.id ?? 'none'}');
     _mockAuthed = false;
@@ -369,56 +399,9 @@ class AppState extends ChangeNotifier {
   void toggleDark() { _darkMode = !_darkMode; notifyListeners(); }
   void setDark(bool v) { _darkMode = v; notifyListeners(); }
 
-  HomeLayout _homeLayout = HomeLayout.score;
-  HomeLayout get homeLayout => _homeLayout;
-  void setHomeLayout(HomeLayout l) { _homeLayout = l; notifyListeners(); }
-
   NavVariant _navVariant = NavVariant.classic;
   NavVariant get navVariant => _navVariant;
   void setNavVariant(NavVariant v) { _navVariant = v; notifyListeners(); }
-
-  // ── Gamification ───────────────────────────────────────────────────────────
-  // Seeded from the loaded business profile (or kBusiness as fallback). The
-  // score is mutated in-memory by quest completions and is NOT persisted yet
-  // — those mutations are lost on next loadBusiness() call.
-  int _score = kBusiness.sustainabilityScore;
-  int get score => _score;
-
-  final int _streak = 12;
-  int get streak => _streak;
-
-  List<Quest> _quests = List.from(kInitialQuests);
-  List<Quest> get quests => _quests;
-
-  ScoreUpEvent? _scoreUp;
-  ScoreUpEvent? get scoreUp => _scoreUp;
-
-  void completeQuest(Quest q) {
-    if (q.done) return;
-    _quests = _quests.map((x) => x.id == q.id ? x.copyWith(done: true) : x).toList();
-    final from = _score;
-    final to = (_score + q.pts).clamp(0, 100);
-    _score = to;
-    _scoreUp = ScoreUpEvent(pts: q.pts, from: from, to: to);
-    log.info('completeQuest — id=${q.id} pts=${q.pts} score $from→$to');
-    notifyListeners();
-  }
-
-  void clearScoreUp() { _scoreUp = null; notifyListeners(); }
-
-  void resetQuests() {
-    _quests = List.from(kInitialQuests);
-    _score = _business?.sustainabilityScore ?? kBusiness.sustainabilityScore;
-    notifyListeners();
-  }
-
-  void triggerScoreUp(int pts) {
-    final from = _score;
-    final to = (_score + pts).clamp(0, 100);
-    _score = to;
-    _scoreUp = ScoreUpEvent(pts: pts, from: from, to: to);
-    notifyListeners();
-  }
 
   // ── Identity helpers ───────────────────────────────────────────────────────
 
@@ -443,7 +426,7 @@ class AppState extends ChangeNotifier {
   }
 
   // ── AI model ───────────────────────────────────────────────────────────────
-  AIModel _aiModel = AIModel.groqLlama33;
+  AIModel _aiModel = AIModel.geminiFlash;
   AIModel get aiModel => _aiModel;
   void setAiModel(AIModel m) {
     log.info('setAiModel — ${_aiModel.name} → ${m.name}');
@@ -451,9 +434,4 @@ class AppState extends ChangeNotifier {
     AIService.setModel(m);
     notifyListeners();
   }
-}
-
-class ScoreUpEvent {
-  final int pts, from, to;
-  ScoreUpEvent({required this.pts, required this.from, required this.to});
 }

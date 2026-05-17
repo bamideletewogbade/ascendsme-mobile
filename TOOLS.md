@@ -59,6 +59,35 @@ Client: [lib/services/ai_service.dart](lib/services/ai_service.dart). Switch mod
 
 Default model: `AIModel.groqLlama33` ([app_state.dart:446](lib/state/app_state.dart#L446)).
 
+## Auth deep links (Google OAuth + password reset + email confirmation)
+
+The mobile app uses a custom URL scheme `ascendsme://auth-callback` for everything that requires a return-to-app redirect: Google sign-in, password-reset emails, and email confirmation links. The scheme is declared in three places that must stay in sync:
+
+- [lib/config.dart](lib/config.dart) — `AppConfig.oauthRedirectUrl`
+- [android/app/src/main/AndroidManifest.xml](android/app/src/main/AndroidManifest.xml) — `<intent-filter>` with `android:scheme="ascendsme"` and `android:host="auth-callback"`
+- [ios/Runner/Info.plist](ios/Runner/Info.plist) — `CFBundleURLTypes` entry with `CFBundleURLSchemes` set to `ascendsme`
+
+`supabase_flutter` captures incoming deep links automatically after `Supabase.initialize()` — no manual `app_links` package required.
+
+### Supabase Dashboard setup (one-time, required for Google OAuth to work)
+
+1. **Auth → URL Configuration** → add `ascendsme://auth-callback` to the **Redirect URLs** allow-list. Without this, Supabase rejects the OAuth redirect.
+2. **Auth → Providers → Google** → toggle on. You'll need a Google Cloud OAuth 2.0 Web Client ID + Client Secret (see below).
+
+### Google Cloud Console setup (one-time)
+
+1. Go to https://console.cloud.google.com → APIs & Services → Credentials.
+2. Create an **OAuth 2.0 Client ID** of type **Web application**:
+   - Authorized redirect URI: `https://orrarzogiobfxsahcaty.supabase.co/auth/v1/callback` (substitute your project's Supabase URL).
+3. Copy the Client ID and Client Secret → paste into Supabase Dashboard → Auth → Providers → Google.
+4. No Android OAuth Client ID is needed because we go through Supabase's hosted OAuth flow, not the native `google_sign_in` SDK.
+
+### Local testing
+
+Once dashboard setup is done: rebuild the APK (`flutter build apk --release` or `flutter run`). Tap **Sign up / Continue with Google** → system browser opens → sign in with Google → browser auto-redirects to `ascendsme://auth-callback?...` → Android opens the app → `supabase_flutter` exchanges the params for a session → auth stream fires `signedIn` → `_AuthGate` switches to `AppShell`.
+
+If the redirect doesn't open the app, check `adb logcat | findstr ascendsme` for the intent dispatch. The intent-filter must have `android:autoVerify="false"` for custom schemes (HTTPS App Links need `true`).
+
 ## Payments
 
 Paystack-hosted pay page is enabled per-invoice by setting `invoices.pay_token` + `online_pay_enabled` via `SupabaseService.enableInvoicePayLink`. The webhook + finalize flow lives on the backend (`finalize_invoice_paystack_payment`); mobile only generates the token and surfaces the share URL (`${payLinkBaseUrl}{token}`).

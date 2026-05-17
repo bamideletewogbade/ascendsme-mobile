@@ -50,7 +50,25 @@ class SupabaseService {
   static Future<void> signOut() => client.auth.signOut();
 
   static Future<void> resetPassword(String email) =>
-      client.auth.resetPasswordForEmail(email);
+      client.auth.resetPasswordForEmail(
+        email,
+        redirectTo: AppConfig.oauthRedirectUrl,
+      );
+
+  /// Start the Google OAuth flow. Launches the system browser, the user signs
+  /// in with Google, and the redirect URL (`ascendsme://auth-callback`) bounces
+  /// back into the app — supabase_flutter automatically captures the callback
+  /// and emits a `signedIn` event on the auth stream.
+  ///
+  /// Returns `true` if the browser launched successfully. The actual sign-in
+  /// completion happens asynchronously via the auth stream listener wired in
+  /// main.dart.
+  static Future<bool> signInWithGoogle() =>
+      client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: AppConfig.oauthRedirectUrl,
+        authScreenLaunchMode: LaunchMode.externalApplication,
+      );
 
   // ── Profile ────────────────────────────────────────────────────────────────
 

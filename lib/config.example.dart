@@ -18,6 +18,12 @@ class AppConfig {
 
   // ── Payment links ─────────────────────────────────────────────────────────
   static const String payLinkBaseUrl   = 'https://pay.ascendsme.app/inv/';
+
+  // ── Auth deep-link redirect ───────────────────────────────────────────────
+  // Used by Supabase OAuth + password reset emails. Must match the scheme in
+  // AndroidManifest.xml, ios/Runner/Info.plist, and Supabase Dashboard's
+  // Auth → URL Config allow-list.
+  static const String oauthRedirectUrl = 'ascendsme://auth-callback';
 }
 
 enum AIModel {
