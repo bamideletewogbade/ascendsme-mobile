@@ -4,6 +4,7 @@ import '../core/models.dart';
 import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 import '../state/app_state.dart';
+import 'sheets/log_expense_sheet.dart';
 import 'sheets/new_invoice_sheet.dart';
 import 'tools/invoices_screen.dart';
 import 'tools/invoice_detail_screen.dart';
@@ -34,18 +35,8 @@ class MoneyScreen extends StatelessWidget {
     );
   }
 
-  void _showExpenseStub(BuildContext context) {
-    final c = context.colors;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Expense logging — coming soon.',
-            style: AppType.body(size: 13, color: Colors.white)),
-        backgroundColor: c.tealDeep,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12)),
-      ),
-    );
+  void _openLogExpense(BuildContext context) {
+    LogExpenseSheet.show(context);
   }
 
   @override
@@ -148,7 +139,7 @@ class MoneyScreen extends StatelessWidget {
                     'Log expense',
                     icon: 'receipt',
                     variant: BtnVariant.secondary,
-                    onTap: () => _showExpenseStub(context),
+                    onTap: () => _openLogExpense(context),
                     fontSize: 13,
                   ),
                 ),

@@ -7,20 +7,20 @@ class HelpScreen extends StatelessWidget {
 
   static const _faqs = [
     (
-      'How is my sustainability score calculated?',
-      'Your score reflects verification completeness, cash flow health, payment history, and compliance activity. It updates as you complete quests and log business activity.',
+      'How do I qualify for funding through AscendSME?',
+      'Complete the verification checklist (business registration, ID, tax certificate, bank statements). Once verified, your account manager prepares your bank-ready report and we match you to lenders who fit your revenue and operating history.',
     ),
     (
-      'How do I qualify for a loan?',
-      'Reach a score of 60+ and complete at least 4 verification steps. Your account manager will guide you through creating your bank-ready report.',
+      'Can I add team members to my business?',
+      'Team members are coming soon. The current release supports a single owner login per business; the web platform already supports invites for owners on the Lite plan and above.',
     ),
     (
-      'Can I add team members?',
-      'Yes — go to Settings > Team to invite up to 5 members on the Lite plan. Each member gets their own login with role-based access.',
+      'Is my financial data shared with lenders?',
+      'Only with your explicit consent when you initiate a lender application. You control exactly what is shared and can revoke access at any time.',
     ),
     (
-      'Is my data shared with lenders?',
-      'Only with your explicit consent when you initiate a lender application. You control exactly what is shared.',
+      'How do I get help with a specific issue?',
+      'Tap "Email support" below, or message your account manager via Chat/Call above. We typically reply within one business day.',
     ),
   ];
 
@@ -30,6 +30,20 @@ class HelpScreen extends StatelessWidget {
     ('school',      'Finance masterclass (free)'),
     ('mail',        'Email support'),
   ];
+
+  void _comingSoon(BuildContext context, String label) {
+    final c = context.colors;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('$label — coming soon.',
+            style: AppType.body(size: 13, color: Colors.white)),
+        backgroundColor: c.tealDeep,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,12 +86,16 @@ class HelpScreen extends StatelessWidget {
                             AppBtn('Chat',
                                 variant: BtnVariant.primary,
                                 icon: 'chat',
-                                fontSize: 12),
+                                fontSize: 12,
+                                onTap: () => _comingSoon(
+                                    context, 'In-app chat with your account manager')),
                             const SizedBox(width: 8),
                             AppBtn('Call',
                                 variant: BtnVariant.outline,
                                 icon: 'phone',
-                                fontSize: 12),
+                                fontSize: 12,
+                                onTap: () => _comingSoon(
+                                    context, 'Call your account manager')),
                           ],
                         ),
                       ],
@@ -117,7 +135,11 @@ class HelpScreen extends StatelessWidget {
                 ..._resources.map(
                   (r) => Padding(
                     padding: const EdgeInsets.only(bottom: 8),
-                    child: _ResourceRow(iconName: r.$1, label: r.$2),
+                    child: _ResourceRow(
+                      iconName: r.$1,
+                      label: r.$2,
+                      onTap: () => _comingSoon(context, r.$2),
+                    ),
                   ),
                 ),
               ],
@@ -174,8 +196,13 @@ class _FaqItemState extends State<_FaqItem> {
 
 class _ResourceRow extends StatelessWidget {
   final String iconName, label;
+  final VoidCallback onTap;
 
-  const _ResourceRow({required this.iconName, required this.label});
+  const _ResourceRow({
+    required this.iconName,
+    required this.label,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -189,6 +216,7 @@ class _ResourceRow extends StatelessWidget {
     };
 
     return AppCard(
+      onTap: onTap,
       padding: const EdgeInsets.all(14),
       child: Row(
         children: [

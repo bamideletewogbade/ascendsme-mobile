@@ -5,6 +5,8 @@ import '../core/widgets/common.dart';
 import '../core/models.dart';
 import '../core/mock_data.dart';
 import '../state/app_state.dart';
+import 'lender_offer_screen.dart';
+import 'verify_step_screen.dart';
 
 class VerifyScreen extends StatelessWidget {
   const VerifyScreen({super.key});
@@ -104,11 +106,18 @@ class VerifyScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 SectionHeader('Verification checklist'),
-                ...kVerificationSteps
-                    .map((step) => Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _VerifyRow(step: step),
-                        )),
+                ...kVerificationSteps.map((step) => Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _VerifyRow(
+                        step: step,
+                        onTap: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => VerifyStepScreen(step: step),
+                          ),
+                        ),
+                      ),
+                    )),
               ],
             ),
           ),
@@ -143,7 +152,15 @@ class VerifyScreen extends StatelessWidget {
                 SectionHeader('Matched lenders'),
                 ...kLenders.map((l) => Padding(
                       padding: const EdgeInsets.only(bottom: 12),
-                      child: _LenderCard(lender: l),
+                      child: _LenderCard(
+                        lender: l,
+                        onView: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => LenderOfferScreen(lender: l),
+                          ),
+                        ),
+                      ),
                     )),
               ],
             ),
@@ -180,8 +197,9 @@ class _StatBox extends StatelessWidget {
 
 class _VerifyRow extends StatelessWidget {
   final VerificationStep step;
+  final VoidCallback onTap;
 
-  const _VerifyRow({required this.step});
+  const _VerifyRow({required this.step, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -198,6 +216,7 @@ class _VerifyRow extends StatelessWidget {
     };
 
     return AppCard(
+      onTap: onTap,
       padding: const EdgeInsets.all(14),
       child: Row(
         children: [
@@ -285,13 +304,15 @@ class _FundingRow extends StatelessWidget {
 
 class _LenderCard extends StatelessWidget {
   final Lender lender;
+  final VoidCallback onView;
 
-  const _LenderCard({required this.lender});
+  const _LenderCard({required this.lender, required this.onView});
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return AppCard(
+      onTap: onView,
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -351,7 +372,10 @@ class _LenderCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          AppBtn('View offer →', variant: BtnVariant.outline, fontSize: 13),
+          AppBtn('View offer →',
+              variant: BtnVariant.outline,
+              fontSize: 13,
+              onTap: onView),
         ],
       ),
     );

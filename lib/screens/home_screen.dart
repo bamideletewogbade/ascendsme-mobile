@@ -6,6 +6,7 @@ import '../core/models.dart';
 import '../core/mock_data.dart';
 import '../state/app_state.dart';
 import 'home_skeleton.dart';
+import 'recommendations_screen.dart';
 
 // Single, opinionated home — cash flow first, then quick actions, then the
 // recommendations that actually move the user's business. No layout switcher,
@@ -44,7 +45,17 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: 22),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-            child: SectionHeader('Top actions', action: 'View all'),
+            child: SectionHeader(
+              'Top actions',
+              action: 'View all',
+              onAction: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      RecommendationsScreen(onAction: onAction),
+                ),
+              ),
+            ),
           ),
           ...kRecommendations.take(3).map(
             (r) => Padding(
@@ -237,7 +248,12 @@ class _RecommendationCard extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              AppBtn(rec.cta, variant: BtnVariant.secondary, fontSize: 12.5),
+              AppBtn(
+                rec.cta,
+                variant: BtnVariant.secondary,
+                fontSize: 12.5,
+                onTap: () => onAction(rec.id),
+              ),
               const SizedBox(width: 8),
               AppPill(rec.impact, tone: PillTone.green, small: true),
             ],

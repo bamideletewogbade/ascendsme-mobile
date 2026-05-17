@@ -24,7 +24,7 @@ const kRecommendations = [
     id: 'r1', priority: 'urgent',
     title: "Log this month's expenses to unlock your Bank-Ready Report",
     why: 'We see GHS 18,420 in revenue but no expenses logged for May. Your P&L is incomplete.',
-    cta: 'Log Expenses', minutes: 4, impact: '+6 pts',
+    cta: 'Log Expenses', minutes: 4, impact: 'Unlocks margin view',
   ),
   Recommendation(
     id: 'r2', priority: 'high',
@@ -42,7 +42,7 @@ const kRecommendations = [
     id: 'r4', priority: 'low',
     title: 'Add 2 more product photos to your public shop',
     why: 'Listings with 4+ photos get 2.3× more orders.',
-    cta: 'Open Shop', minutes: 6, impact: '+12% orders',
+    cta: 'Open Shop', minutes: 6, impact: '2.3× more orders',
   ),
 ];
 
@@ -128,13 +128,6 @@ const kActivity = [
   ActivityItem(id: 'a2', time: '2h',  text: 'Inventory alert: Kente skirt (size M) low',  kind: 'alert'),
   ActivityItem(id: 'a3', time: '5h',  text: 'New booking from Linda Mensah — Sat 11:00',  kind: 'booking'),
   ActivityItem(id: 'a4', time: '1d',  text: 'AM Kojo verified your Stanbic statement',    kind: 'verify'),
-];
-
-// ─── Initial quests ───────────────────────────
-const kInitialQuests = [
-  Quest(id: 'q1', title: "Log this week's expenses", detail: 'Unblocks Bank-Ready report', pts: 4, action: 'expense'),
-  Quest(id: 'q2', title: 'Follow up on Kente Co.',   detail: 'INV-0142 · 12 days overdue', pts: 3, action: 'followup'),
-  Quest(id: 'q3', title: 'Send 1 invoice',           detail: "Builds your monthly P&L",    pts: 2, action: 'newInvoice'),
 ];
 
 // ─── AI system context ────────────────────────

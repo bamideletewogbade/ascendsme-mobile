@@ -850,29 +850,3 @@ class _RingPainter extends CustomPainter {
 // ─────────────────────────────────────────────
 // StreakChip
 // ─────────────────────────────────────────────
-class StreakChip extends StatelessWidget {
-  final int days;
-  const StreakChip({super.key, required this.days});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [c.orangeSurface, c.bgElevated]),
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: c.orangeSurface),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text('🔥', style: TextStyle(fontSize: 13)),
-          const SizedBox(width: 5),
-          Text('$days-day streak',
-              style: AppType.body(size: 11.5, weight: FontWeight.w700, color: c.orange)),
-        ],
-      ),
-    );
-  }
-}

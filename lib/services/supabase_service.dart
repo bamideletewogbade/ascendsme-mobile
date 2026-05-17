@@ -180,6 +180,42 @@ class SupabaseService {
     return List<Map<String, dynamic>>.from(rows as List);
   }
 
+  // ── Expense mutation ───────────────────────────────────────────────────────
+
+  /// Insert a new expense for [businessId]. Mirrors the columns the
+  /// sumExpenses aggregate already reads (`amount_ghs`, `expense_date`,
+  /// `business_id`). Description is optional. Date defaults to today.
+  ///
+  /// Returns the persisted row so callers can confirm + refresh financials.
+  /// Throws [PostgrestException] on RLS / validation failure — caller should
+  /// catch and surface a friendly error.
+  static Future<Map<String, dynamic>> createExpense({
+    required String businessId,
+    required num amount,
+    DateTime? date,
+    String? description,
+  }) async {
+    log.info('createExpense — bizId=$businessId amount=$amount');
+    final sw = Stopwatch()..start();
+    final d = date ?? DateTime.now();
+    final dateIso = d.toIso8601String().substring(0, 10); // YYYY-MM-DD
+
+    final row = await client
+        .from('expenses')
+        .insert({
+          'business_id': businessId,
+          'amount_ghs': amount,
+          'expense_date': dateIso,
+          if (description != null && description.trim().isNotEmpty)
+            'description': description.trim(),
+        })
+        .select()
+        .single();
+
+    log.info('createExpense — done id=${row['id']} (${sw.elapsedMilliseconds}ms)');
+    return Map<String, dynamic>.from(row);
+  }
+
   // ── Invoice lifecycle mutations ────────────────────────────────────────────
 
   /// Mark a manually-paid invoice as paid: insert a receipts row referencing

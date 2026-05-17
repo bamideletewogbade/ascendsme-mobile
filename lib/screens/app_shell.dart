@@ -7,10 +7,12 @@ import 'home_screen.dart';
 import 'money_screen.dart';
 import 'customers_screen.dart';
 import 'profile_screen.dart';
+import 'verify_screen.dart';
 import 'tools/invoices_screen.dart';
 import 'sheets/profile_drawer.dart';
 import 'sheets/notifications_sheet.dart';
 import 'sheets/new_invoice_sheet.dart';
+import 'sheets/log_expense_sheet.dart';
 import 'sheets/ask_ascend_sheet.dart';
 
 class AppShell extends StatelessWidget {
@@ -59,12 +61,48 @@ class _AppShellBodyState extends State<_AppShellBody> {
         _openAI('I have overdue invoices. Draft a polite, professional WhatsApp '
             'follow-up reminder I can send to the customer. Keep it warm and brief.');
       case 'expense':
-        // TODO(phase-3): wire to a Log-Expense sheet. For now this is a no-op
-        // since quests/score completion is gone.
-        break;
+        LogExpenseSheet.show(ctx);
       case 'booking':
         _pushTool(ctx, 'booking');
+      case 'customer':
+        // Jump to the Customers tab. Real "add customer" form lands in
+        // Phase 3+ when we model a customers table.
+        context.read<AppState>().setTab(AppTab.customers);
+
+      // ── Recommendation card CTAs (kRecommendations.id) ───────────────
+      case 'r1': // "Log this month's expenses"
+        LogExpenseSheet.show(ctx);
+      case 'r2': // "Follow up on overdue invoices"
+        _openAI('I have overdue invoices. Draft a polite, professional WhatsApp '
+            'follow-up reminder I can send to the customer. Keep it warm and brief.');
+      case 'r3': // "Apply to the Stanbic Women in Business facility"
+        // Surface the verification + funding flow as the canonical entry
+        // point. The lender list is at the bottom of that screen.
+        _pushVerification(ctx);
+      case 'r4': // "Add 2 more product photos to your public shop"
+        _comingSoon(ctx, 'Online shop');
     }
+  }
+
+  void _comingSoon(BuildContext ctx, String featureName) {
+    final c = ctx.colors;
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      SnackBar(
+        content: Text('$featureName — coming soon.',
+            style: AppType.body(size: 13, color: Colors.white)),
+        backgroundColor: c.tealDeep,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  void _pushVerification(BuildContext ctx) {
+    Navigator.push(
+      ctx,
+      MaterialPageRoute(builder: (_) => const VerifyScreen()),
+    );
   }
 
   void _pushTool(BuildContext ctx, String id) {

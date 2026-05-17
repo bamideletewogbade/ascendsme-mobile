@@ -418,20 +418,6 @@ class ActivityItem {
   const ActivityItem({required this.id, required this.time, required this.text, required this.kind});
 }
 
-class Quest {
-  final String id, title, detail, action;
-  final int pts;
-  final bool done;
-  const Quest({
-    required this.id, required this.title, required this.detail,
-    required this.action, required this.pts, this.done = false,
-  });
-
-  Quest copyWith({bool? done}) => Quest(
-    id: id, title: title, detail: detail, action: action, pts: pts, done: done ?? this.done,
-  );
-}
-
 // Tier ladder
 class ScoreTier {
   final String id, label;

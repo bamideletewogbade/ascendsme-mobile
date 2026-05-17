@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../state/app_state.dart';
+import '../help_screen.dart';
 import '../settings_screen.dart';
 
 class ProfileDrawer extends StatelessWidget {
@@ -167,7 +168,17 @@ class _DrawerContent extends StatelessWidget {
                 },
               ),
               _DrawerItem(
-                  icon: Icons.help_outline, label: 'Help & support'),
+                icon: Icons.help_outline,
+                label: 'Help & support',
+                onTap: () {
+                  onClose();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const HelpScreen()),
+                  );
+                },
+              ),
             ],
           ),
         ),

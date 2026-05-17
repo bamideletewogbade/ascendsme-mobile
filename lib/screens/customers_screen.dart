@@ -4,6 +4,7 @@ import '../core/models.dart';
 import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 import '../state/app_state.dart';
+import 'customer_detail_screen.dart';
 
 /// Customers tab — derived from invoices for now (group by client_name).
 /// A real `customers` table + dedicated CRM lands in Phase 3; this v0.1
@@ -110,7 +111,18 @@ class CustomersScreen extends StatelessWidget {
           else
             ...customers.map((cust) => Padding(
                   padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                  child: _CustomerRow(customer: cust),
+                  child: Builder(
+                    builder: (rowContext) => _CustomerRow(
+                      customer: cust,
+                      onTap: () => Navigator.push(
+                        rowContext,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              CustomerDetailScreen(customerName: cust.name),
+                        ),
+                      ),
+                    ),
+                  ),
                 )),
         ],
       ),
@@ -161,14 +173,16 @@ class _DerivedCustomer {
 
 class _CustomerRow extends StatelessWidget {
   final _DerivedCustomer customer;
+  final VoidCallback onTap;
 
-  const _CustomerRow({required this.customer});
+  const _CustomerRow({required this.customer, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final hasOutstanding = customer.outstanding > 0;
     return AppCard(
+      onTap: onTap,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
