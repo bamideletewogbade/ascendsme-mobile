@@ -9,6 +9,9 @@ import 'sheets/log_sale_sheet.dart';
 import 'sheets/new_invoice_sheet.dart';
 import 'tools/invoices_screen.dart';
 import 'tools/invoice_detail_screen.dart';
+import 'tools/receipts_screen.dart';
+import 'tools/expenses_screen.dart';
+import 'tools/cash_flow_screen.dart';
 
 /// Finance tab — the financial pulse of the business. Surfaces:
 /// - Month-to-date cashflow summary (revenue / expenses / outstanding)
@@ -17,7 +20,8 @@ import 'tools/invoice_detail_screen.dart';
 ///
 /// Full invoice management lives at [InvoicesScreen] (pushable).
 class FinanceScreen extends StatelessWidget {
-  const FinanceScreen({super.key});
+  final VoidCallback? onOpenDrawer;
+  const FinanceScreen({super.key, this.onOpenDrawer});
 
   void _openNewInvoice(BuildContext context) {
     showModalBottomSheet(
@@ -57,8 +61,17 @@ class FinanceScreen extends StatelessWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-            child: Text('Finance',
-                style: AppType.display(size: 28, color: c.text)),
+            child: Row(
+              children: [
+                GestureDetector(
+                  onTap: onOpenDrawer,
+                  child: AppAvatar(state.business.initials, size: 40),
+                ),
+                const SizedBox(width: 12),
+                Text('Finance',
+                    style: AppType.display(size: 28, color: c.text)),
+              ],
+            ),
           ),
 
           // Cashflow summary
@@ -122,7 +135,110 @@ class FinanceScreen extends StatelessWidget {
             ),
           ),
 
-          const SizedBox(height: 22),
+          const SizedBox(height: 14),
+          GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ReceiptsScreen()),
+            ),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: c.bgInset,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.receipt_long_outlined, size: 16, color: c.tealDeep),
+                  const SizedBox(width: 6),
+                  Text('View all receipts',
+                      style: AppType.body(
+                          size: 13,
+                          weight: FontWeight.w600,
+                          color: c.tealDeep)),
+                  const SizedBox(width: 4),
+                  Icon(Icons.arrow_forward_ios,
+                      size: 12, color: c.tealDeep),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 14),
+          GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ExpensesScreen()),
+            ),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              decoration: BoxDecoration(
+                color: c.bgInset,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.receipt_long, size: 16, color: c.orange),
+                  const SizedBox(width: 6),
+                  Text('View all expenses',
+                      style: AppType.body(
+                          size: 13,
+                          weight: FontWeight.w600,
+                          color: c.orange)),
+                  const SizedBox(width: 4),
+                  Icon(Icons.arrow_forward_ios,
+                      size: 12, color: c.orange),
+                ],
+              ),
+            ),
+          ),
+
+          // Cash flow forecast link
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: GestureDetector(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const CashFlowForecastScreen()),
+              ),
+              child: AppCard(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 36, height: 36,
+                      decoration: BoxDecoration(
+                        color: c.navySurface,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Icon(Icons.timeline, size: 18, color: c.navyDeep),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Cash Flow Forecast',
+                              style: AppType.body(size: 13, weight: FontWeight.w600, color: c.text)),
+                          Text('30-day projection & insights',
+                              style: AppType.body(size: 11.5, color: c.textMuted)),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.chevron_right, size: 18, color: c.textFaint),
+                  ],
+                ),
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 14),
 
           // Quick actions
           Padding(
@@ -208,15 +324,18 @@ class FinanceScreen extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(
                 children: [
-                  ...recent.map((inv) => Padding(
+                  ...[...recent].asMap().entries.map((e) => Padding(
                         padding: const EdgeInsets.only(bottom: 8),
-                        child: _InvoiceRow(
-                          invoice: inv,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  InvoiceDetailScreen(initialInvoice: inv),
+                        child: FadeInSlide(
+                          index: e.key,
+                          child: _InvoiceRow(
+                            invoice: e.value,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    InvoiceDetailScreen(initialInvoice: e.value),
+                              ),
                             ),
                           ),
                         ),

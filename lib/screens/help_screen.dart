@@ -37,7 +37,7 @@ class HelpScreen extends StatelessWidget {
       SnackBar(
         content: Text('$label — coming soon.',
             style: AppType.body(size: 13, color: Colors.white)),
-        backgroundColor: c.tealDeep,
+        backgroundColor: c.navyDeep,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12)),
@@ -63,8 +63,8 @@ class HelpScreen extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: AppCard(
-              background: c.tealSurface,
-              border: Border.all(color: c.tealSurfaceStrong),
+              background: c.navySurface,
+              border: Border.all(color: c.navySurfaceStrong),
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -72,7 +72,7 @@ class HelpScreen extends StatelessWidget {
                   Row(
                     children: [
                       Icon(Icons.support_agent,
-                          size: 22, color: c.tealDeep),
+                          size: 22, color: c.navyDeep),
                       const SizedBox(width: 10),
                       Text('Need a hand?',
                           style:

@@ -97,7 +97,7 @@ class _DrawerContent extends StatelessWidget {
               Text(state.business.handle,
                   style: AppType.body(size: 13, color: c.textMuted)),
               const SizedBox(height: 8),
-              AppPill(state.business.tier, tone: PillTone.teal),
+              AppPill(state.business.tier, tone: PillTone.neutral),
             ],
           ),
         ),

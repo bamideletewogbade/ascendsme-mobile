@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/expense_mapping.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../services/supabase_service.dart';
@@ -34,6 +35,9 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
   final _amountCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   DateTime _date = DateTime.now();
+  String _category = 'Other';
+  // 'cash' | 'momo' | 'bank' — required NOT NULL on the expenses table.
+  String _paymentSource = 'cash';
 
   bool _saving = false;
   String? _error;
@@ -105,13 +109,17 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
         amount: amount,
         date: _date,
         description: _descCtrl.text.trim(),
+        category: _category,
+        paymentSource: _paymentSource,
       );
 
       if (!mounted) return;
 
-      // Refresh cashflow tiles so the new expense shows up.
+      // Refresh cashflow tiles + activity feed so the new expense shows up.
       // ignore: unawaited_futures
       appState.loadFinancials();
+      // ignore: unawaited_futures
+      appState.loadExpenses();
       widget.onSaved?.call();
 
       setState(() {
@@ -263,6 +271,90 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
 
         const SizedBox(height: 14),
 
+        // Category
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Category',
+                  style: AppType.body(
+                      size: 11.5,
+                      weight: FontWeight.w600,
+                      color: c.textMuted)),
+              const SizedBox(height: 6),
+              Container(
+                height: 50,
+                decoration: BoxDecoration(
+                  color: c.bg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: c.border),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: _category,
+                    isExpanded: true,
+                    dropdownColor: c.bgElevated,
+                    icon: Icon(Icons.keyboard_arrow_down_rounded,
+                        color: c.textFaint, size: 20),
+                    style: AppType.body(
+                        size: 14, weight: FontWeight.w500, color: c.text),
+                    items: kManualExpenseCategories
+                        .map((v) => DropdownMenuItem(
+                            value: v, child: Text(v)))
+                        .toList(),
+                    onChanged: (v) {
+                      if (v != null) setState(() => _category = v);
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
+        // Payment source
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Paid with',
+                  style: AppType.body(
+                      size: 11.5,
+                      weight: FontWeight.w600,
+                      color: c.textMuted)),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  _PaymentChip(
+                    label: 'Cash',
+                    selected: _paymentSource == 'cash',
+                    onTap: () => setState(() => _paymentSource = 'cash'),
+                  ),
+                  const SizedBox(width: 8),
+                  _PaymentChip(
+                    label: 'MoMo',
+                    selected: _paymentSource == 'momo',
+                    onTap: () => setState(() => _paymentSource = 'momo'),
+                  ),
+                  const SizedBox(width: 8),
+                  _PaymentChip(
+                    label: 'Bank',
+                    selected: _paymentSource == 'bank',
+                    onTap: () => setState(() => _paymentSource = 'bank'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
         // Date
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -342,8 +434,7 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
                     width: 24,
                     height: 24,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation(c.teal),
+                      strokeWidth: 2.5,                        valueColor: AlwaysStoppedAnimation(c.teal),
                     ),
                   ),
                 )
@@ -390,6 +481,48 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
               variant: BtnVariant.secondary,
               onTap: () => Navigator.pop(context)),
         ],
+      ),
+    );
+  }
+}
+
+class _PaymentChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _PaymentChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 42,
+          decoration: BoxDecoration(
+            color: selected ? c.tealSurface : c.bg,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? c.teal : c.border,
+              width: selected ? 1.5 : 1,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: AppType.body(
+              size: 13,
+              weight: FontWeight.w600,
+              color: selected ? c.tealDeep : c.text,
+            ),
+          ),
+        ),
       ),
     );
   }

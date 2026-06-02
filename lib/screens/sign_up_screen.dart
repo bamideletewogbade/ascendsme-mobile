@@ -151,47 +151,52 @@ class _SignUpScreenState extends State<SignUpScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // ── Header ────────────────────────────────────
+            // ── Header: back chevron + centered AscendSME wordmark + step counter
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: Row(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  if (_step < 2)
-                    GestureDetector(
-                      onTap: _step == 0
-                          ? () => Navigator.pop(context)
-                          : () => setState(() {
-                                _step = 0;
-                                _localError = null;
-                              }),
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: c.bgInset,
-                          borderRadius: BorderRadius.circular(12),
+                  Row(
+                    children: [
+                      if (_step < 2)
+                        GestureDetector(
+                          onTap: _step == 0
+                              ? () => Navigator.pop(context)
+                              : () => setState(() {
+                                    _step = 0;
+                                    _localError = null;
+                                  }),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              color: c.bgInset,
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                            child: Icon(
+                              Icons.arrow_back_ios_new_rounded,
+                              size: 14,
+                              color: c.teal,
+                            ),
+                          ),
                         ),
-                        child: Icon(
-                          Icons.arrow_back_ios_new_rounded,
-                          size: 16,
-                          color: c.text,
-                        ),
-                      ),
-                    ),
-                  if (_step < 2) const SizedBox(width: 12),
-                  Text('Create account',
-                      style: AppType.heading(size: 16, color: c.text)),
-                  const Spacer(),
-                  if (_step < 2)
-                    Text('${_step + 1} of 2',
-                        style: AppType.label(size: 12, color: c.textFaint)),
+                      const Spacer(),
+                      if (_step < 2)
+                        Text('${_step + 1} of 2',
+                            style:
+                                AppType.label(size: 11, color: c.textFaint)),
+                    ],
+                  ),
+                  Text('AscendSME',
+                      style: AppType.heading(size: 18, color: c.teal)),
                 ],
               ),
             ),
 
             // Progress bar
             if (_step < 2) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: ClipRRect(
@@ -200,13 +205,13 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     value: (_step + 1) / 2,
                     minHeight: 3,
                     backgroundColor: c.bgInset,
-                    valueColor: AlwaysStoppedAnimation(c.teal),
+                    valueColor: AlwaysStoppedAnimation(c.green),
                   ),
                 ),
               ),
             ],
 
-            const SizedBox(height: 28),
+            const SizedBox(height: 22),
 
             // ── Body ──────────────────────────────────────
             Expanded(
@@ -299,15 +304,20 @@ class _BusinessStep extends StatelessWidget {
       child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Your details', style: AppType.display(size: 28, color: c.text)),
-        const SizedBox(height: 6),
-        Text("Tell us a bit about you and your business.",
-            style: AppType.body(size: 14, color: c.textMuted)),
-        const SizedBox(height: 24),
+        Text('Create Your Business Account',
+            textAlign: TextAlign.center,
+            style: AppType.display(size: 22, color: c.teal)),
+        const SizedBox(height: 8),
+        Text(
+          'Empowering your small-business journey with intelligent financial tools and insights.',
+          textAlign: TextAlign.center,
+          style: AppType.body(size: 13.5, color: c.textMuted),
+        ),
+        const SizedBox(height: 20),
 
         // Google shortcut — for users who'd rather skip the email/password
         // form. After auth, we'll prompt for business name + phone + industry
-        // in a follow-up onboarding step (Phase 2 work).
+        // in a follow-up onboarding step.
         GoogleSignInButton(
           onPressed: onGoogleSignIn,
           loading: googleLoading,
@@ -320,7 +330,7 @@ class _BusinessStep extends StatelessWidget {
             Expanded(child: Divider(color: c.border)),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text('or with email',
+              child: Text('OR JOIN WITH EMAIL',
                   style: AppType.label(size: 11, color: c.textFaint)),
             ),
             Expanded(child: Divider(color: c.border)),
@@ -400,8 +410,29 @@ class _BusinessStep extends StatelessWidget {
           _ErrorBanner(error!),
         ],
 
-        const SizedBox(height: 28),
-        AppBtn('Next →', full: true, fontSize: 15, onTap: onNext),
+        const SizedBox(height: 26),
+        SizedBox(
+          height: 50,
+          child: ElevatedButton.icon(
+            onPressed: onNext,
+            icon: Text('Continue',
+                style: AppType.body(
+                    size: 15,
+                    weight: FontWeight.w600,
+                    color: Colors.white)),
+            label:
+                const Icon(Icons.arrow_forward, size: 18, color: Colors.white),
+            style: ElevatedButton.styleFrom(                  backgroundColor: c.teal,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              minimumSize: const Size.fromHeight(50),
+            ),
+          ),
+        ),
         const SizedBox(height: 32),
       ],
       ),
@@ -448,13 +479,16 @@ class _AccountStep extends StatelessWidget {
       child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Your account', style: AppType.display(size: 28, color: c.text)),
-        const SizedBox(height: 6),
-        Text('Create your login credentials.',
-            style: AppType.body(size: 14, color: c.textMuted)),
-        const SizedBox(height: 28),
+        Text('Set Your Credentials',
+            textAlign: TextAlign.center,
+            style: AppType.display(size: 22, color: c.teal)),
+        const SizedBox(height: 8),
+        Text('One step away. These keep your business records private.',
+            textAlign: TextAlign.center,
+            style: AppType.body(size: 13.5, color: c.textMuted)),
+        const SizedBox(height: 24),
 
-        _SignUpField(
+        AppInput(
           label: 'Email',
           controller: emailCtrl,
           icon: Icons.email_outlined,
@@ -468,7 +502,7 @@ class _AccountStep extends StatelessWidget {
           onSubmitted: (_) => pwFocus.requestFocus(),
         ),
         const SizedBox(height: 16),
-        _SignUpField(
+        AppInput(
           label: 'Password',
           controller: pwCtrl,
           focusNode: pwFocus,
@@ -490,7 +524,7 @@ class _AccountStep extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        _SignUpField(
+        AppInput(
           label: 'Confirm password',
           controller: confirmPwCtrl,
           focusNode: confirmPwFocus,
@@ -517,7 +551,7 @@ class _AccountStep extends StatelessWidget {
           _ErrorBanner(error!),
         ],
 
-        const SizedBox(height: 28),
+        const SizedBox(height: 26),
         loading
             ? Center(
                 child: SizedBox(
@@ -529,7 +563,10 @@ class _AccountStep extends StatelessWidget {
                   ),
                 ),
               )
-            : AppBtn('Create account', full: true, fontSize: 15,
+            : AppBtn('Sign Up',
+                icon: 'trending_up',
+                full: true,
+                fontSize: 15,
                 onTap: onSubmit),
         const SizedBox(height: 32),
       ],
@@ -551,29 +588,23 @@ class _SuccessStep extends StatelessWidget {
       children: [
         const SizedBox(height: 40),
         Container(
-          width: 80,
-          height: 80,
+          width: 84,
+          height: 84,
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              colors: [c.teal, c.tealDeep],
+              colors: [c.green, c.greenDeep],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: c.teal.withValues(alpha: 0.3),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
-              ),
-            ],
+            boxShadow: AppShadows.green,
           ),
           child: const Icon(Icons.mark_email_read_outlined,
-              color: Colors.white, size: 36),
+              color: Colors.white, size: 38),
         ),
         const SizedBox(height: 28),
         Text('Check your inbox!',
-            style: AppType.display(size: 26, color: c.text)),
+            style: AppType.display(size: 26, color: c.teal)),
         const SizedBox(height: 12),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),

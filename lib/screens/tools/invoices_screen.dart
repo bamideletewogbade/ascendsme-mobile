@@ -51,6 +51,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
     final c = context.colors;
     final state = context.watch<AppState>();
     final groups = _groupByStatus(state.invoices);
+    final proformas = state.invoices.where((i) => i.isProforma).toList();
     final totalCount = state.invoices.length;
     final outstandingTotal = state.financials.outstanding;
 
@@ -73,6 +74,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                         ? _EmptyState(onCreate: _openNewInvoice)
                         : _ListBody(
                             groups: groups,
+                            proformas: proformas,
                             totalCount: totalCount,
                             outstandingTotal: outstandingTotal,
                           ),
@@ -95,6 +97,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
 
   /// Group invoices by effective status with a deterministic display order:
   /// overdue first (needs attention), then pending, then paid.
+  /// Excludes proformas — they render in their own "Quotes" section.
   Map<_StatusGroup, List<Invoice>> _groupByStatus(List<Invoice> invoices) {
     final out = <_StatusGroup, List<Invoice>>{
       _StatusGroup.overdue: [],
@@ -102,6 +105,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
       _StatusGroup.paid: [],
     };
     for (final inv in invoices) {
+      if (inv.isProforma) continue; // handled separately
       final g = switch (inv.status) {
         'overdue' => _StatusGroup.overdue,
         'paid' => _StatusGroup.paid,
@@ -117,11 +121,13 @@ enum _StatusGroup { overdue, pending, paid }
 
 class _ListBody extends StatelessWidget {
   final Map<_StatusGroup, List<Invoice>> groups;
+  final List<Invoice> proformas;
   final int totalCount;
   final int outstandingTotal;
 
   const _ListBody({
     required this.groups,
+    required this.proformas,
     required this.totalCount,
     required this.outstandingTotal,
   });
@@ -169,22 +175,56 @@ class _ListBody extends StatelessWidget {
         ),
         const SizedBox(height: 20),
 
+        // ── Proformas / Quotes section ──
+        if (proformas.isNotEmpty) ...[
+          Row(
+            children: [
+              Icon(Icons.description_outlined, size: 14, color: c.navy),
+              const SizedBox(width: 6),
+              Text('Quotes (${proformas.length})',
+                  style: AppType.body(
+                      size: 13,
+                      weight: FontWeight.w700,
+                      color: c.navy)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...proformas.asMap().entries.map((e) => FadeInSlide(
+                index: e.key,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _InvoiceCard(
+                    invoice: e.value,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            InvoiceDetailScreen(initialInvoice: e.value),
+                      ),
+                    ),
+                  ),
+                ),
+              )),
+          const SizedBox(height: 16),
+        ],
+
         // Status groups — render only groups with rows so empty buckets don't
         // pollute the list.
         for (final entry in groups.entries)
           if (entry.value.isNotEmpty) ...[
             _GroupHeader(group: entry.key, count: entry.value.length),
             const SizedBox(height: 8),
-            ...entry.value.map((inv) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Builder(
-                    builder: (ctx) => _InvoiceCard(
-                      invoice: inv,
+            ...entry.value.asMap().entries.map((e) => FadeInSlide(
+                  index: e.key,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: _InvoiceCard(
+                      invoice: e.value,
                       onTap: () => Navigator.push(
-                        ctx,
+                        context,
                         MaterialPageRoute(
                           builder: (_) =>
-                              InvoiceDetailScreen(initialInvoice: inv),
+                              InvoiceDetailScreen(initialInvoice: e.value),
                         ),
                       ),
                     ),
@@ -240,6 +280,7 @@ class _InvoiceCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final (pillTone, pillLabel) = switch (invoice.status) {
+      'proforma' => (PillTone.neutral, 'Quote'),
       'paid' => (PillTone.green, 'Paid'),
       'overdue' => (PillTone.rose, 'Overdue'),
       'pending' || 'sent' => (PillTone.orange, 'Pending'),
@@ -248,6 +289,9 @@ class _InvoiceCard extends StatelessWidget {
 
     // Human due/age sub-line.
     final dueSub = switch (invoice.status) {
+      'proforma' => invoice.validUntil != null
+          ? 'Valid until ${formatLongDate(invoice.validUntil!)}'
+          : 'Quote',
       'overdue' => invoice.days > 0
           ? 'Overdue by ${invoice.days}d · was due ${invoice.due}'
           : 'Overdue · was due ${invoice.due}',
@@ -317,8 +361,7 @@ class _LoadingState extends StatelessWidget {
         children: [
           SizedBox(
             width: 28,
-            height: 28,
-            child: CircularProgressIndicator(
+            height: 28,                child: CircularProgressIndicator(
                 strokeWidth: 2.5,
                 valueColor: AlwaysStoppedAnimation(c.teal)),
           ),
@@ -356,7 +399,7 @@ class _EmptyState extends StatelessWidget {
                   shape: BoxShape.circle,
                 ),
                 child: Icon(Icons.description_outlined,
-                    size: 26, color: c.tealDeep),
+                    size: 26, color: c.teal),
               ),
               const SizedBox(height: 16),
               Text('No invoices yet',

@@ -6,6 +6,8 @@ import 'core/tokens.dart';
 import 'services/supabase_service.dart';
 import 'services/app_logger.dart';
 import 'services/app_router_observer.dart';
+import 'services/connectivity_service.dart';
+import 'services/sync_service.dart';
 import 'screens/splash_screen.dart';
 import 'screens/app_shell.dart';
 import 'screens/sign_in_screen.dart';
@@ -76,11 +78,20 @@ Future<void> main() async {
   // Phase 2: attach file output now that the binding is ready.
   await log.initFileOutput();
 
-  final appState = AppState();
+  final connectivityService = ConnectivityService();
+  final syncService = SyncService();
+  final appState = AppState(
+    connectivity: connectivityService,
+    syncService: syncService,
+  );
 
   runApp(
-    ChangeNotifierProvider.value(
-      value: appState,
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider.value(value: appState),
+        ChangeNotifierProvider.value(value: connectivityService),
+        ChangeNotifierProvider.value(value: syncService),
+      ],
       child: const _AscendApp(),
     ),
   );

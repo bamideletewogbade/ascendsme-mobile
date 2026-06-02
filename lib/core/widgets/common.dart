@@ -1,3 +1,4 @@
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../tokens.dart';
@@ -5,7 +6,134 @@ import '../models.dart';
 import '../../state/app_state.dart';
 
 // ─────────────────────────────────────────────
-// AppIcon — wraps Material icons with the design system's sizing/weight
+// AnimatedPress — scales child on tap for springy
+// micro-interaction feedback on any interactive
+// element.
+// ─────────────────────────────────────────────
+class AnimatedPress extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final double scale;
+
+  const AnimatedPress({
+    super.key,
+    required this.child,
+    this.onTap,
+    this.scale = 0.96,
+  });
+
+  @override
+  State<AnimatedPress> createState() => _AnimatedPressState();
+}
+
+class _AnimatedPressState extends State<AnimatedPress>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: AppAnimation.fast,
+    );
+    _anim = Tween<double>(begin: 1.0, end: widget.scale).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: (_) => _ctrl.forward(),
+      onTapUp: (_) {
+        _ctrl.reverse();
+        widget.onTap?.call();
+      },
+      onTapCancel: () => _ctrl.reverse(),
+      child: AnimatedBuilder(
+        animation: _anim,
+        builder: (_, child) => Transform.scale(
+          scale: _anim.value,
+          child: child,
+        ),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// FadeInSlide — staggered entrance animation for
+// list items / cards.
+// ─────────────────────────────────────────────
+class FadeInSlide extends StatefulWidget {
+  final Widget child;
+  final int index;
+  final Duration delayPerItem;
+
+  const FadeInSlide({
+    super.key,
+    required this.child,
+    this.index = 0,
+    this.delayPerItem = const Duration(milliseconds: 60),
+  });
+
+  @override
+  State<FadeInSlide> createState() => _FadeInSlideState();
+}
+
+class _FadeInSlideState extends State<FadeInSlide>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _opacity;
+  late final Animation<Offset> _slide;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _opacity = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeOut),
+    );
+    _slide = Tween<Offset>(
+      begin: const Offset(0, 12),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic));
+
+    Future.delayed(widget.delayPerItem * widget.index, () {
+      if (mounted) _ctrl.forward();
+    });
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: SlideTransition(position: _slide, child: widget.child),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// AppIcon — wraps Material icons with the design
+// system's sizing/weight
 // ─────────────────────────────────────────────
 class AppIcon extends StatelessWidget {
   final String name;
@@ -58,6 +186,7 @@ class AppIcon extends StatelessWidget {
     'camera_alt': Icons.camera_alt_outlined,
     'campaign': Icons.campaign_outlined,
     'local_shipping': Icons.local_shipping_outlined,
+    'bolt': Icons.bolt_outlined,
     'calculate': Icons.calculate_outlined,
     'palette': Icons.palette_outlined,
     'balance': Icons.balance_outlined,
@@ -71,6 +200,7 @@ class AppIcon extends StatelessWidget {
     'users': Icons.people_outline,
     'banknote': Icons.payments_outlined,
     'message_circle': Icons.chat_bubble_outline,
+    'grid_view': Icons.grid_view_outlined,
     'sparkle': Icons.auto_awesome,
     'plus': Icons.add,
     'file_text': Icons.description_outlined,
@@ -85,7 +215,8 @@ class AppIcon extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// AppCard
+// AppCard — elevated card with optional entrance
+// animation and touch feedback.
 // ─────────────────────────────────────────────
 class AppCard extends StatelessWidget {
   final Widget child;
@@ -95,6 +226,7 @@ class AppCard extends StatelessWidget {
   final double radius;
   final VoidCallback? onTap;
   final List<BoxShadow>? shadows;
+  final bool animate; // Enters with fade+slide
 
   const AppCard({
     super.key,
@@ -102,9 +234,10 @@ class AppCard extends StatelessWidget {
     this.padding,
     this.background,
     this.border,
-    this.radius = 18,
+    this.radius = AppRadius.lg,
     this.onTap,
     this.shadows,
+    this.animate = false,
   });
 
   @override
@@ -122,17 +255,22 @@ class AppCard extends StatelessWidget {
           ? Padding(padding: padding!, child: child)
           : child,
     );
+
+    Widget wrapped = content;
     if (onTap != null) {
-      return GestureDetector(onTap: onTap, child: content);
+      wrapped = AnimatedPress(onTap: onTap, child: content);
     }
-    return content;
+    if (animate) {
+      wrapped = FadeInSlide(child: wrapped);
+    }
+    return wrapped;
   }
 }
 
 // ─────────────────────────────────────────────
 // AppPill — status / category badge
 // ─────────────────────────────────────────────
-enum PillTone { teal, orange, green, rose, amber, neutral, inverse }
+enum PillTone { teal, orange, green, rose, amber, neutral, inverse, navy }
 
 class AppPill extends StatelessWidget {
   final String label;
@@ -152,8 +290,9 @@ class AppPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final (bg, fg) = switch (tone) {
-      PillTone.teal    => (c.tealSurface, c.tealDeep),
-      PillTone.orange  => (c.orangeSurface, c.orange),
+      PillTone.teal    => (c.tealSurface, c.teal),
+      PillTone.navy    => (c.navySurface, c.navyDeep),
+      PillTone.orange  => (c.amberSurface, c.amber),
       PillTone.green   => (c.greenSurface, c.green),
       PillTone.rose    => (c.roseSurface, c.rose),
       PillTone.amber   => (const Color(0x24F5B021), const Color(0xFFB07804)),
@@ -167,7 +306,7 @@ class AppPill extends StatelessWidget {
       padding: EdgeInsets.symmetric(horizontal: px, vertical: py),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(999),
+        borderRadius: BorderRadius.circular(AppRadius.pill),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -187,9 +326,10 @@ class AppPill extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// AppBtn
+// AppBtn — press-animated button with gradient
+// support
 // ─────────────────────────────────────────────
-enum BtnVariant { primary, secondary, ghost, outline, dark }
+enum BtnVariant { primary, secondary, ghost, outline, dark, gradient }
 
 class AppBtn extends StatelessWidget {
   final String label;
@@ -212,41 +352,55 @@ class AppBtn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final fs = fontSize ?? 14.0;
+
     final (bg, fg, bd) = switch (variant) {
       BtnVariant.primary   => (c.teal, Colors.white, c.teal),
       BtnVariant.secondary => (c.bgInset, c.text, c.border),
       BtnVariant.ghost     => (Colors.transparent, c.teal, Colors.transparent),
       BtnVariant.outline   => (Colors.transparent, c.text, c.borderStrong),
       BtnVariant.dark      => (c.text, c.bgElevated, c.text),
+      BtnVariant.gradient  => (c.navy, Colors.white, c.navy), // handled by decor
     };
-    final fs = fontSize ?? 14.0;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: full ? double.infinity : null,
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: bd),
-          boxShadow: variant == BtnVariant.primary
-              ? [BoxShadow(color: c.teal.withValues(alpha: 0.15), blurRadius: 12, offset: const Offset(0, 4))]
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: full ? MainAxisSize.max : MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (icon != null) ...[
-              AppIcon(icon!, size: 16, color: fg),
-              const SizedBox(width: 8),
-            ],
-            Text(label,
-                style: AppType.body(size: fs, weight: FontWeight.w600, color: fg)),
+
+    final boxShadows = variant == BtnVariant.primary || variant == BtnVariant.gradient
+        ? [BoxShadow(color: c.teal.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))]
+        : null;
+
+    Widget button = Container(
+      width: full ? double.infinity : null,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: variant == BtnVariant.gradient
+            ? LinearGradient(
+                colors: [c.teal, c.tealDeep],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              )
+            : null,
+        color: variant != BtnVariant.gradient ? bg : null,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: bd),
+        boxShadow: boxShadows,
+      ),
+      child: Row(
+        mainAxisSize: full ? MainAxisSize.max : MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (icon != null) ...[
+            AppIcon(icon!, size: 16, color: fg),
+            const SizedBox(width: 8),
           ],
-        ),
+          Text(label,
+              style: AppType.body(size: fs, weight: FontWeight.w600, color: fg)),
+        ],
       ),
     );
+
+    if (onTap != null) {
+      button = AnimatedPress(onTap: onTap, child: button);
+    }
+    return button;
   }
 }
 
@@ -263,8 +417,8 @@ class AppAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final bg = tone == 'orange' ? c.orangeSurface : c.tealSurface;
-    final fg = tone == 'orange' ? c.orange : c.tealDeep;
+    final bg = tone == 'orange' ? c.amberSurface : c.tealSurface;
+    final fg = tone == 'orange' ? c.amber : c.teal;
     return Container(
       width: size,
       height: size,
@@ -283,7 +437,7 @@ class AppAvatar extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Monogram — "AS" branded tile
+// AppMonogram — branded "AS" tile with gradient
 // ─────────────────────────────────────────────
 class AppMonogram extends StatelessWidget {
   final double size;
@@ -317,7 +471,8 @@ class AppMonogram extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Shimmer loading placeholder
+// AppShimmer — animated loading placeholder with
+// sweeping gradient
 // ─────────────────────────────────────────────
 class AppShimmer extends StatefulWidget {
   final double width;
@@ -355,7 +510,7 @@ class _AppShimmerState extends State<AppShimmer> with SingleTickerProviderStateM
     final c = context.colors;
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (context2, snap) => Container(
+      builder: (_, __) => Container(
         width: widget.width,
         height: widget.height,
         decoration: BoxDecoration(
@@ -406,13 +561,237 @@ class SectionHeader extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// SubScreenHeader — back button + title + optional action
+// SubScreenHeader — back button + title + action
 // ─────────────────────────────────────────────
+class SubScreenHeader extends StatelessWidget {
+  final String title;
+  final VoidCallback onBack;
+  final Widget? trailing;
+
+  const SubScreenHeader(this.title, {super.key, required this.onBack, this.trailing});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.lg, AppSpacing.lg, AppSpacing.sm),
+      child: Row(
+        children: [
+          AnimatedPress(
+            onTap: onBack,
+            child: Container(
+              width: 38, height: 38,
+              decoration: BoxDecoration(
+                color: c.bgElevated,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                border: Border.all(color: c.border),
+              ),
+              child: Icon(Icons.arrow_back, size: 18, color: c.text),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(title,
+                style: AppType.heading(size: 18, color: c.text)),
+          ),
+          if (trailing != null) trailing!,
+        ],
+      ),
+    );
+  }
+}
+
 // ─────────────────────────────────────────────
-// GoogleSignInButton — outlined button matching the design system, used on
-// the sign-in and sign-up screens. The Google "G" is a flat colour-blocked
-// approximation drawn with Container rotated quadrants; avoids shipping a
-// raster asset just for one logo.
+// GlassSheet — bottom sheet with frosted glass
+// background effect
+// ─────────────────────────────────────────────
+class GlassSheet extends StatelessWidget {
+  final Widget child;
+  final double maxHeightRatio;
+
+  const GlassSheet({
+    super.key,
+    required this.child,
+    this.maxHeightRatio = 0.9,
+  });
+
+  static Future<T?> show<T>(
+    BuildContext context, {
+    required Widget child,
+    double maxHeightRatio = 0.9,
+  }) {
+    return showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => GlassSheet(child: child, maxHeightRatio: maxHeightRatio),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * maxHeightRatio,
+        ),
+        decoration: BoxDecoration(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
+          color: c.bgElevated,
+          boxShadow: AppShadows.sheet,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SheetHandle(),
+            Flexible(child: child),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// Sheet drag handle
+// ─────────────────────────────────────────────
+class SheetHandle extends StatelessWidget {
+  const SheetHandle({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Center(
+        child: Container(
+          width: 40,
+          height: 5,
+          decoration: BoxDecoration(
+            color: c.borderStrong,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// AppInput — enhanced text field with animated
+// focus border and leading icon
+// ─────────────────────────────────────────────
+class AppInput extends StatefulWidget {
+  final String label;
+  final TextEditingController controller;
+  final IconData icon;
+  final bool obscure;
+  final Widget? suffix;
+  final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final List<String>? autofillHints;
+  final ValueChanged<String>? onSubmitted;
+  final FocusNode? focusNode;
+  final String? hint;
+
+  const AppInput({
+    super.key,
+    required this.label,
+    required this.controller,
+    required this.icon,
+    this.obscure = false,
+    this.suffix,
+    this.keyboardType,
+    this.textInputAction,
+    this.autofillHints,
+    this.onSubmitted,
+    this.focusNode,
+    this.hint,
+  });
+
+  @override
+  State<AppInput> createState() => _AppInputState();
+}
+
+class _AppInputState extends State<AppInput> {
+  late FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = widget.focusNode ?? FocusNode();
+  }
+
+  @override
+  void dispose() {
+    if (widget.focusNode == null) _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final isFocused = _focusNode.hasFocus;
+    final hasText = widget.controller.text.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(widget.label,
+            style: AppType.body(
+                size: 11.5, weight: FontWeight.w600, color: c.textMuted)),
+        const SizedBox(height: 6),
+        AnimatedContainer(
+          duration: AppAnimation.fast,
+          height: 50,
+          decoration: BoxDecoration(
+            color: c.bgInset,
+            borderRadius: BorderRadius.circular(AppRadius.sm),
+            border: Border.all(                  color: isFocused ? c.teal : c.border,
+              width: isFocused ? 1.5 : 1.0,
+            ),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 14),
+              Icon(widget.icon, size: 17,
+                  color: isFocused ? c.teal : c.textFaint),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextField(
+                  controller: widget.controller,
+                  focusNode: _focusNode,
+                  obscureText: widget.obscure,
+                  keyboardType: widget.keyboardType,
+                  textInputAction: widget.textInputAction,
+                  autofillHints: widget.autofillHints,
+                  onSubmitted: widget.onSubmitted,
+                  style: AppType.body(
+                      size: 14, weight: FontWeight.w500, color: c.text),
+                  decoration: InputDecoration(
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    hintText: widget.hint,
+                    hintStyle: AppType.body(size: 14, color: c.textFaint),
+                  ),
+                ),
+              ),
+              if (widget.suffix != null) ...[widget.suffix!, const SizedBox(width: 14)],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// GoogleSignInButton
 // ─────────────────────────────────────────────
 class GoogleSignInButton extends StatelessWidget {
   final VoidCallback onPressed;
@@ -429,14 +808,14 @@ class GoogleSignInButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return GestureDetector(
+    return AnimatedPress(
       onTap: loading ? null : onPressed,
       child: Container(
         height: 50,
         padding: const EdgeInsets.symmetric(horizontal: 18),
         decoration: BoxDecoration(
           color: c.bgElevated,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(color: c.borderStrong),
         ),
         child: Row(
@@ -470,8 +849,6 @@ class _GoogleGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Simplified Google "G" mark — colour-blocked, not the official SVG, but
-    // recognisable. Replace with the official asset before public release.
     return SizedBox(
       width: size,
       height: size,
@@ -494,46 +871,8 @@ class _GoogleGlyph extends StatelessWidget {
   }
 }
 
-class SubScreenHeader extends StatelessWidget {
-  final String title;
-  final VoidCallback onBack;
-  final Widget? trailing;
-
-  const SubScreenHeader(this.title, {super.key, required this.onBack, this.trailing});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: onBack,
-            child: Container(
-              width: 38, height: 38,
-              decoration: BoxDecoration(
-                color: c.bgElevated,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: c.border),
-              ),
-              child: Icon(Icons.arrow_back, size: 18, color: c.text),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(title,
-                style: AppType.heading(size: 18, color: c.text)),
-          ),
-          ?trailing,
-        ],
-      ),
-    );
-  }
-}
-
 // ─────────────────────────────────────────────
-// BottomNav — three variants from the design
+// BottomNav
 // ─────────────────────────────────────────────
 class BottomNav extends StatelessWidget {
   final AppTab current;
@@ -553,7 +892,7 @@ class BottomNav extends StatelessWidget {
     (AppTab.home,      'Home',      Icons.home_outlined,                  Icons.home),
     (AppTab.finance,   'Finance',   Icons.account_balance_wallet_outlined, Icons.account_balance_wallet),
     (AppTab.customers, 'Customers', Icons.people_alt_outlined,             Icons.people_alt),
-    (AppTab.profile,   'Profile',   Icons.person_outline,                  Icons.person),
+    (AppTab.profile, 'Profile', Icons.person_outline,                    Icons.person),
   ];
 
   @override
@@ -567,49 +906,72 @@ class BottomNav extends StatelessWidget {
 
   Widget _classicNav(BuildContext context, {required bool fab}) {
     final c = context.colors;
-    final isDark = context.isDark;
     return Container(
       decoration: BoxDecoration(
-        color: isDark
-            ? const Color(0xFF0A0F11).withValues(alpha: 0.88)
-            : Colors.white.withValues(alpha: 0.92),
+        color: c.bgElevated,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
         border: Border(top: BorderSide(color: c.border)),
+        boxShadow: const [
+          BoxShadow(color: Color(0x0F031632), blurRadius: 24, offset: Offset(0, -8)),
+        ],
       ),
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 56,
-          child: Row(
-            children: [
-              for (int i = 0; i < _tabs.length; i++) ...[
-                if (fab && i == 2) _fabButton(context, c),
-                _tabButton(context, _tabs[i], c),
+          height: 72,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(
+              children: [
+                for (int i = 0; i < _tabs.length; i++) ...[
+                  if (fab && i == 2) _fabButton(context, c),
+                  _tabButton(context, _tabs[i], c),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _tabButton(BuildContext ctx, (AppTab, String, IconData, IconData) t, AppColorsX c) {
+  Widget _tabButton(
+      BuildContext ctx, (AppTab, String, IconData, IconData) t, AppColorsX c) {
     final active = current == t.$1;
     return Expanded(
       child: GestureDetector(
         onTap: () => onTab(t.$1),
         behavior: HitTestBehavior.opaque,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(active ? t.$4 : t.$3, size: 22,
-                color: active ? c.teal : c.textFaint),
-            const SizedBox(height: 3),
-            Text(t.$2,
-                style: AppType.body(
-                    size: 10.5,
-                    weight: active ? FontWeight.w600 : FontWeight.w500,
-                    color: active ? c.teal : c.textFaint)),
-          ],
+        child: AnimatedContainer(
+          duration: AppAnimation.normal,
+          curve: Curves.easeOut,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AnimatedContainer(
+                duration: AppAnimation.normal,
+                curve: Curves.easeOutBack,
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 3),
+                decoration: BoxDecoration(
+                  color: active ? c.tealSurface : Colors.transparent,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                ),
+                child: Icon(
+                  active ? t.$4 : t.$3,
+                  size: 20,
+                  color: active ? c.teal : c.textFaint,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(t.$2,
+                  style: AppType.body(
+                      size: 10.5,
+                      weight: active ? FontWeight.w700 : FontWeight.w500,
+                      color: active ? c.teal : c.textFaint)),
+            ],
+          ),
         ),
       ),
     );
@@ -623,16 +985,27 @@ class BottomNav extends StatelessWidget {
         child: Center(
           child: Transform.translate(
             offset: const Offset(0, -12),
-            child: Container(
-              width: 48, height: 48,
-              decoration: BoxDecoration(
-                color: c.teal,
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(color: c.teal.withValues(alpha: 0.4), blurRadius: 16, offset: const Offset(0, 6)),
-                ],
+            child: AnimatedPress(
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [c.teal, c.tealDeep],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
+                  boxShadow: [
+                    BoxShadow(
+                      color: c.teal.withValues(alpha: 0.4),
+                      blurRadius: 16,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: const Icon(Icons.add, color: Colors.white, size: 22),
               ),
-              child: const Icon(Icons.add, color: Colors.white, size: 22),
             ),
           ),
         ),
@@ -642,52 +1015,62 @@ class BottomNav extends StatelessWidget {
 
   Widget _pillNav(BuildContext context) {
     final c = context.colors;
-    final isDark = context.isDark;
     return Align(
       alignment: Alignment.bottomCenter,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 28, left: 16, right: 16),
-        child: Container(
-          decoration: BoxDecoration(
-            color: isDark
-                ? const Color(0xFF141B1E).withValues(alpha: 0.78)
-                : Colors.white.withValues(alpha: 0.78),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: c.border),
-            boxShadow: AppShadows.cardLg,
-          ),
-          padding: const EdgeInsets.all(6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: _tabs.map((t) {
-              final active = current == t.$1;
-              return GestureDetector(
-                onTap: () => onTab(t.$1),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  padding: EdgeInsets.symmetric(
-                      horizontal: active ? 14 : 11, vertical: 9),
-                  decoration: BoxDecoration(
-                    color: active ? c.teal : Colors.transparent,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(active ? t.$4 : t.$3, size: 17,
-                          color: active ? Colors.white : c.textMuted),
-                      if (active) ...[
-                        const SizedBox(width: 6),
-                        Text(t.$2,
-                            style: AppType.body(
-                                size: 12, weight: FontWeight.w600,
-                                color: Colors.white)),
-                      ],
-                    ],
-                  ),
-                ),
-              );
-            }).toList(),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            child: Container(
+              decoration: BoxDecoration(
+                color: (context.isDark
+                        ? const Color(0xFF141B1E)
+                        : Colors.white)
+                    .withValues(alpha: 0.78),
+                border: Border.all(color: c.border),
+                boxShadow: AppShadows.cardLg,
+              ),
+              padding: const EdgeInsets.all(6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: _tabs.map((t) {
+                  final active = current == t.$1;
+                  return GestureDetector(
+                    onTap: () => onTab(t.$1),
+                    child: AnimatedContainer(
+                      duration: AppAnimation.normal,
+                      curve: Curves.easeOutBack,
+                      padding: EdgeInsets.symmetric(
+                          horizontal: active ? 14 : 11, vertical: 9),
+                      decoration: BoxDecoration(
+                        color: active ? c.teal : Colors.transparent,
+                        borderRadius: BorderRadius.circular(AppRadius.pill),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(active ? t.$4 : t.$3,
+                              size: 17,
+                              color: active
+                                  ? Colors.white
+                                  : c.textMuted),
+                          if (active) ...[
+                            const SizedBox(width: 6),
+                            Text(t.$2,
+                                style: AppType.body(
+                                    size: 12,
+                                    weight: FontWeight.w600,
+                                    color: Colors.white)),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
           ),
         ),
       ),
@@ -696,7 +1079,7 @@ class BottomNav extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// PlaceholderImage — striped box used for images not yet loaded
+// PlaceholderImage
 // ─────────────────────────────────────────────
 class PlaceholderImage extends StatelessWidget {
   final double? width;
@@ -712,7 +1095,7 @@ class PlaceholderImage extends StatelessWidget {
       width: width ?? double.infinity,
       height: height,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
         border: Border.all(color: c.border),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -739,29 +1122,7 @@ class PlaceholderImage extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────
-// Sheet drag handle
-// ─────────────────────────────────────────────
-class SheetHandle extends StatelessWidget {
-  const SheetHandle({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Center(
-      child: Container(
-        width: 38, height: 4,
-        margin: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: c.borderStrong,
-          borderRadius: BorderRadius.circular(99),
-        ),
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────
-// TierRing — avatar with animated tier progress arc
+// TierRing
 // ─────────────────────────────────────────────
 class TierRing extends StatelessWidget {
   final int score;
@@ -790,20 +1151,20 @@ class TierRing extends StatelessWidget {
         ),
         child: Center(
           child: Container(
-            margin: const EdgeInsets.all(5),
-            decoration: BoxDecoration(
-              color: context.colors.tealSurface,
-              shape: BoxShape.circle,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              initials,
-              style: GoogleFonts.outfit(
-                fontSize: size * 0.28,
-                fontWeight: FontWeight.w600,
-                color: context.colors.tealDeep,
+              margin: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: context.colors.tealSurface,
+                shape: BoxShape.circle,
               ),
-            ),
+              alignment: Alignment.center,
+              child: Text(
+                initials,
+                style: GoogleFonts.outfit(
+                  fontSize: size * 0.28,
+                  fontWeight: FontWeight.w600,
+                  color: context.colors.teal,
+                ),
+              ),
           ),
         ),
       ),
@@ -846,7 +1207,3 @@ class _RingPainter extends CustomPainter {
   bool shouldRepaint(_RingPainter old) =>
       old.progress != progress || old.ringColor != ringColor;
 }
-
-// ─────────────────────────────────────────────
-// StreakChip
-// ─────────────────────────────────────────────

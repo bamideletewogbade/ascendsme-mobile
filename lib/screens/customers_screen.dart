@@ -3,35 +3,131 @@ import 'package:provider/provider.dart';
 import '../core/models.dart';
 import '../core/tokens.dart';
 import '../core/widgets/common.dart';
+import '../services/crm_service.dart';
 import '../state/app_state.dart';
 import 'customer_detail_screen.dart';
 
-/// Customers tab — derived from invoices for now (group by client_name).
-/// A real `customers` table + dedicated CRM lands in Phase 3; this v0.1
-/// surface lets the user see who they bill, how much is outstanding per
-/// customer, and tap to drill into history.
-class CustomersScreen extends StatelessWidget {
-  const CustomersScreen({super.key});
+/// Customers tab — enhanced with CRM groups, tags, and smart segments.
+class CustomersScreen extends StatefulWidget {
+  final VoidCallback? onOpenDrawer;
+  const CustomersScreen({super.key, this.onOpenDrawer});
 
-  void _showAddStub(BuildContext context) {
+  @override
+  State<CustomersScreen> createState() => _CustomersScreenState();
+}
+
+class _CustomersScreenState extends State<CustomersScreen> {
+  bool _loaded = false;
+  List<CustomerGroup> _groups = [];
+  String _selectedGroup = 'all';
+  String _searchQuery = '';
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_loaded) return;
+    final state = context.read<AppState>();
+    if (state.business.id != null && state.customers.isEmpty && !state.customersLoading) {
+      _loaded = true;
+      state.loadCustomers();
+      _loadGroups();
+    }
+  }
+
+  Future<void> _loadGroups() async {
+    final bizId = context.read<AppState>().business.id;
+    if (bizId == null) return;
+    final rows = await CrmService.getCustomerGroups(businessId: bizId);
+    if (!mounted) return;
+    setState(() => _groups = rows.map(CustomerGroup.fromRow).toList());
+  }
+
+  Future<void> _showCreateGroup() async {
     final c = context.colors;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Adding customers — coming soon.',
-            style: AppType.body(size: 13, color: Colors.white)),
-        backgroundColor: c.tealDeep,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12)),
+    final nameCtrl = TextEditingController();
+    final descCtrl = TextEditingController();
+
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: c.bgElevated,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('New Group',
+            style: AppType.heading(size: 17, color: c.text)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration: InputDecoration(
+                labelText: 'Group name',
+                labelStyle: AppType.body(size: 12, color: c.textMuted),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              style: AppType.body(size: 14, color: c.text),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: descCtrl,
+              decoration: InputDecoration(
+                labelText: 'Description (optional)',
+                labelStyle: AppType.body(size: 12, color: c.textMuted),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              style: AppType.body(size: 14, color: c.text),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel',
+                style: AppType.body(size: 13, weight: FontWeight.w600, color: c.textMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Create',
+                style: AppType.body(size: 13, weight: FontWeight.w600, color: c.teal)),
+          ),
+        ],
       ),
     );
+
+    if (created != true || nameCtrl.text.trim().isEmpty) return;
+    final bizId = context.read<AppState>().business.id;
+    if (bizId == null) return;
+    await CrmService.createCustomerGroup(
+      businessId: bizId,
+      name: nameCtrl.text.trim(),
+      description: descCtrl.text.trim().isNotEmpty ? descCtrl.text.trim() : null,
+    );
+    _loadGroups();
+  }
+
+  List<Customer> get _filteredCustomers {
+    final state = context.read<AppState>();
+    var customers = state.customers;
+    if (_searchQuery.trim().isNotEmpty) {
+      final q = _searchQuery.trim().toLowerCase();
+      customers = customers.where((c) =>
+          c.fullName.toLowerCase().contains(q) ||
+          (c.phone?.contains(q) ?? false) ||
+          (c.email?.toLowerCase().contains(q) ?? false)).toList();
+    }
+    return customers;
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final state = context.watch<AppState>();
-    final customers = _deriveCustomers(state.invoices);
+    final customers = _filteredCustomers;
+    final invoices = state.invoices;
+
+    final totalOutstanding = invoices
+        .where((i) => i.status != 'paid' && i.status != 'void')
+        .fold<int>(0, (s, i) => s + i.amount);
 
     return SafeArea(
       bottom: false,
@@ -42,169 +138,325 @@ class CustomersScreen extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
             child: Row(
               children: [
+                GestureDetector(
+                  onTap: widget.onOpenDrawer,
+                  child: AppAvatar(state.business.initials, size: 40),
+                ),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text('Customers',
                       style: AppType.display(size: 28, color: c.text)),
-                ),
-                GestureDetector(
-                  onTap: () => _showAddStub(context),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 9),
-                    decoration: BoxDecoration(
-                      color: c.teal,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.add,
-                            size: 16, color: Colors.white),
-                        const SizedBox(width: 4),
-                        Text('Add',
-                            style: AppType.body(
-                                size: 12.5,
-                                weight: FontWeight.w600,
-                                color: Colors.white)),
-                      ],
-                    ),
-                  ),
                 ),
               ],
             ),
           ),
 
-          // Summary chip
+          // Summary
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 18),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
             child: Text(
               customers.isEmpty
-                  ? 'No customers yet'
-                  : '${customers.length} ${customers.length == 1 ? "customer" : "customers"} · derived from your invoices',
+                  ? 'No customers yet — they appear as you send invoices'
+                  : '${customers.length} ${customers.length == 1 ? "customer" : "customers"} · '
+                      '${invoices.length} ${invoices.length == 1 ? "invoice" : "invoices"} · '
+                      '${formatGHS(totalOutstanding)} outstanding',
               style: AppType.body(size: 12.5, color: c.textMuted),
             ),
           ),
 
-          if (customers.isEmpty)
+          // Search
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: c.bgInset,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: c.border),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.search, size: 16, color: c.textFaint),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      onChanged: (v) => setState(() => _searchQuery = v),
+                      style: AppType.body(size: 13, color: c.text),
+                      decoration: InputDecoration(
+                        hintText: 'Search customers…',
+                        hintStyle: AppType.body(size: 13, color: c.textFaint),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
+                  ),
+                  if (_searchQuery.isNotEmpty)
+                    GestureDetector(
+                      onTap: () => setState(() => _searchQuery = ''),
+                      child: Icon(Icons.close, size: 16, color: c.textFaint),
+                    ),
+                ],
+              ),
+            ),
+          ),
+
+          // Groups row
+          if (_groups.isNotEmpty) ...[
+            SizedBox(
+              height: 34,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+                children: [
+                  _GroupChip(
+                    label: 'All',
+                    active: _selectedGroup == 'all',
+                    onTap: () => setState(() => _selectedGroup = 'all'),
+                  ),
+                  ..._groups.map((g) => _GroupChip(
+                        label: g.name,
+                        count: g.memberCount,
+                        active: _selectedGroup == g.id,
+                        onTap: () => setState(() => _selectedGroup = g.id),
+                      )),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: GestureDetector(
+                      onTap: _showCreateGroup,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: c.tealSurface,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.add, size: 14, color: c.teal),
+                            const SizedBox(width: 3),
+                            Text('Group',
+                                style: AppType.body(size: 11.5, weight: FontWeight.w600, color: c.teal)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+
+          // Loading state
+          if (state.customersLoading && customers.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 48),
+              child: Center(child: _LoadingIndicator()),
+            ),
+
+          // Empty state
+          if (!state.customersLoading && customers.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: AppCard(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    Icon(Icons.people_outline,
-                        size: 36, color: c.textFaint),
+                    Icon(Icons.people_outline, size: 36, color: c.textFaint),
                     const SizedBox(height: 12),
                     Text('Your customers will appear here',
                         textAlign: TextAlign.center,
                         style: AppType.heading(size: 15, color: c.text)),
                     const SizedBox(height: 4),
                     Text(
-                      'Once you send an invoice, the customer shows up in this list with their outstanding balance and payment history.',
+                      'Create an invoice or log a sale with a customer name — they\'ll show up here automatically.',
                       textAlign: TextAlign.center,
                       style: AppType.body(size: 12.5, color: c.textMuted),
                     ),
                   ],
                 ),
               ),
-            )
-          else
-            ...customers.map((cust) => Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-                  child: Builder(
-                    builder: (rowContext) => _CustomerRow(
-                      customer: cust,
-                      onTap: () => Navigator.push(
-                        rowContext,
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              CustomerDetailScreen(customerName: cust.name),
+            ),
+
+          // Customer list
+          if (!state.customersLoading && customers.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_groups.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: GestureDetector(
+                        onTap: _showCreateGroup,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: c.tealSurface,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.group_add, size: 14, color: c.teal),
+                              const SizedBox(width: 6),
+                              Text('Create group to organize customers',
+                                  style: AppType.body(size: 11.5, color: c.teal)),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                )),
+                  ...customers.asMap().entries.map((e) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: FadeInSlide(
+                          index: e.key,
+                          child: Builder(
+                            builder: (rowContext) => _CustomerRow(
+                              customer: e.value,
+                              invoices: invoices.where((inv) =>
+                                  inv.customer.trim().toLowerCase() ==
+                                  e.value.fullName.trim().toLowerCase()
+                              ).toList(),
+                              onTap: () => Navigator.push(
+                                rowContext,
+                                MaterialPageRoute(
+                                  builder: (_) => CustomerDetailScreen(
+                                    customer: e.value,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      )),
+                ],
+              ),
+            ),
         ],
       ),
     );
   }
-
-  static List<_DerivedCustomer> _deriveCustomers(List<Invoice> invoices) {
-    final byName = <String, _DerivedCustomer>{};
-    for (final inv in invoices) {
-      final key = inv.customer.trim();
-      if (key.isEmpty) continue;
-      final entry = byName.putIfAbsent(
-        key,
-        () => _DerivedCustomer(name: key, total: 0, outstanding: 0, count: 0),
-      );
-      entry.count += 1;
-      entry.total += inv.amount.toDouble();
-      if (inv.status != 'paid' && inv.status != 'void') {
-        entry.outstanding += inv.amount.toDouble();
-      }
-    }
-    final list = byName.values.toList()
-      ..sort((a, b) => b.total.compareTo(a.total));
-    return list;
-  }
 }
 
-class _DerivedCustomer {
-  final String name;
-  double total;
-  double outstanding;
-  int count;
-
-  _DerivedCustomer({
-    required this.name,
-    required this.total,
-    required this.outstanding,
-    required this.count,
-  });
-
-  String get initials {
-    final parts = name.trim().split(RegExp(r'\s+'));
-    if (parts.isEmpty) return '—';
-    if (parts.length == 1) return parts[0].substring(0, 1).toUpperCase();
-    return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
-  }
-}
-
-class _CustomerRow extends StatelessWidget {
-  final _DerivedCustomer customer;
-  final VoidCallback onTap;
-
-  const _CustomerRow({required this.customer, required this.onTap});
+class _LoadingIndicator extends StatelessWidget {
+  const _LoadingIndicator();
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final hasOutstanding = customer.outstanding > 0;
+    return SizedBox(
+      width: 28, height: 28,
+      child: CircularProgressIndicator(
+          strokeWidth: 2.5, valueColor: AlwaysStoppedAnimation(c.teal)),
+    );
+  }
+}
+
+// ── Group Chip ──────────────────────────────────────────────────────────────
+
+class _GroupChip extends StatelessWidget {
+  final String label;
+  final int? count;
+  final bool active;
+  final VoidCallback onTap;
+  const _GroupChip({
+    required this.label,
+    this.count,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.only(right: 6),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: active ? c.teal : c.bgInset,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: active ? c.teal.withValues(alpha: 0.3) : c.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label,
+                  style: AppType.body(
+                      size: 12,
+                      weight: FontWeight.w600,
+                      color: active ? Colors.white : c.textMuted)),
+              if (count != null) ...[
+                const SizedBox(width: 4),
+                Text('$count',
+                    style: AppType.body(size: 11, color: active ? Colors.white70 : c.textFaint)),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Customer Row ────────────────────────────────────────────────────────────
+
+class _CustomerRow extends StatelessWidget {
+  final Customer customer;
+  final List<Invoice> invoices;
+  final VoidCallback onTap;
+
+  const _CustomerRow({
+    required this.customer,
+    required this.invoices,
+    required this.onTap,
+  });
+
+  String get _initials {
+    final parts = customer.fullName.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty) return '—';
+    if (parts.length == 1) return parts[0].substring(0, 1).toUpperCase();
+    return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final totalOutstanding = invoices
+        .where((i) => i.status != 'paid' && i.status != 'void')
+        .fold<int>(0, (s, i) => s + i.amount);
+    final hasOutstanding = totalOutstanding > 0;
+    final contactInfo = customer.phone ?? customer.email;
+
     return AppCard(
       onTap: onTap,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       child: Row(
         children: [
-          AppAvatar(customer.initials, size: 40),
+          AppAvatar(_initials, size: 40),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(customer.name,
-                    style: AppType.body(
-                        size: 13.5, weight: FontWeight.w600, color: c.text)),
-                const SizedBox(height: 2),
-                Text(
-                  '${customer.count} ${customer.count == 1 ? "invoice" : "invoices"} · GHS ${customer.total.round()}',
-                  style: AppType.body(size: 11.5, color: c.textMuted),
-                ),
+                Text(customer.fullName,
+                    style: AppType.body(size: 13.5, weight: FontWeight.w600, color: c.text)),
+                if (contactInfo != null) ...[
+                  const SizedBox(height: 2),
+                  Text(contactInfo,
+                      style: AppType.body(size: 11.5, color: c.textMuted)),
+                ],
+                if (invoices.isNotEmpty)
+                  Text('${invoices.length} ${invoices.length == 1 ? "invoice" : "invoices"}',
+                      style: AppType.body(size: 11, color: c.textFaint)),
               ],
             ),
           ),
           if (hasOutstanding)
-            AppPill('GHS ${customer.outstanding.round()} due',
+            AppPill('GHS ${totalOutstanding.round()} due',
                 tone: PillTone.rose, small: true),
         ],
       ),

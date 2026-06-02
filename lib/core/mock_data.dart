@@ -29,10 +29,10 @@ const kTips = [
 // shapes of incoming money (paid now vs bill-to-send). Expense covers outgoing.
 // Booking stays for service-based businesses (tailors, salons).
 const kQuickActions = [
-  QuickAction(id: 'sale',     label: 'Log sale',     icon: 'payments',     tone: 'teal'),
-  QuickAction(id: 'invoice',  label: 'New invoice',  icon: 'description',  tone: 'teal'),
-  QuickAction(id: 'expense',  label: 'Log expense',  icon: 'receipt',      tone: 'orange'),
-  QuickAction(id: 'booking',  label: 'New booking',  icon: 'calendar',     tone: 'neutral'),
+  QuickAction(id: 'sale',     label: 'Log sale',     icon: 'payments',      tone: 'teal'),
+  QuickAction(id: 'invoice',  label: 'New invoice',  icon: 'description',   tone: 'teal'),
+  QuickAction(id: 'expense',  label: 'Log expense',  icon: 'receipt',       tone: 'orange'),
+  QuickAction(id: 'tools',    label: 'All tools',    icon: 'grid_view',     tone: 'teal'),
 ];
 
 // ─── Tools ───────────────────────────────────

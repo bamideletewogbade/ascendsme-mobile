@@ -50,17 +50,9 @@ class SettingsScreen extends StatelessWidget {
                   _SectionLabel('Appearance'),
                   AppCard(
                     padding: EdgeInsets.zero,
-                    child: SwitchListTile(
+                    child: _ThemeToggle(
                       value: state.darkMode,
                       onChanged: state.setDark,
-                      activeThumbColor: c.teal,
-                      secondary:
-                          Icon(Icons.dark_mode_outlined, color: c.textMuted),
-                      title: Text('Dark mode',
-                          style: AppType.body(
-                              size: 14,
-                              weight: FontWeight.w500,
-                              color: c.text)),
                     ),
                   ),
 
@@ -176,6 +168,38 @@ class _SettingsRow extends StatelessWidget {
           Text(value,
               style: AppType.body(size: 13, color: c.textMuted),
               overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThemeToggle extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _ThemeToggle({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          Icon(Icons.dark_mode_outlined, size: 20, color: c.textMuted),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text('Dark mode',
+                style: AppType.body(
+                    size: 14, weight: FontWeight.w500, color: c.text)),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: c.teal,
+            activeTrackColor: c.tealSurface,
+          ),
         ],
       ),
     );

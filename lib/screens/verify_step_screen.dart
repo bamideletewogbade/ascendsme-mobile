@@ -17,7 +17,7 @@ class VerifyStepScreen extends StatelessWidget {
       SnackBar(
         content: Text('Document upload — coming soon.',
             style: AppType.body(size: 13, color: Colors.white)),
-        backgroundColor: c.tealDeep,
+        backgroundColor: c.navyDeep,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12)),

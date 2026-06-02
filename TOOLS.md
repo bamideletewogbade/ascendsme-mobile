@@ -18,7 +18,6 @@ Copy [lib/config.example.dart](lib/config.example.dart) → `lib/config.dart` an
 
 | Key                      | Where to get it                          |
 | ------------------------ | ---------------------------------------- |
-| `geminiApiKey`           | https://aistudio.google.com/apikey (1500 req/day free) |
 | `groqApiKey`             | https://console.groq.com/keys (fast LPU, generous free tier) |
 | `openRouterApiKey`       | https://openrouter.ai/settings/keys (free Llama tier) |
 | `supabaseUrl`            | Supabase Dashboard → Settings → API      |
@@ -51,13 +50,13 @@ Client: [lib/services/ai_service.dart](lib/services/ai_service.dart). Switch mod
 
 | Provider     | Models                                                  | Transport                                      |
 | ------------ | ------------------------------------------------------- | ---------------------------------------------- |
-| Gemini       | `gemini-2.0-flash`, `gemini-2.0-flash-lite`, `gemini-1.5-flash` | `google_generative_ai` package         |
-| Groq         | `llama-3.3-70b-versatile`                               | REST → `https://api.groq.com/openai/v1/chat/completions` |
-| OpenRouter   | `meta-llama/llama-3.1-8b-instruct:free`, `:free` 70B    | REST → `https://openrouter.ai/api/v1/chat/completions`   |
+| Vertex AI    | `gemini-2.0-flash`, `gemini-2.0-flash-lite`            | `firebase_ai` package (Firebase Auth)          |
+| Groq         | `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`      | REST → `https://api.groq.com/openai/v1/chat/completions` |
+| OpenRouter   | `meta-llama/llama-3.3-70b-instruct:free`, `llama-3.1-8b-instruct:free`, `openrouter/free` | REST → `https://openrouter.ai/api/v1/chat/completions` |
 
 `AIService.ask()` is the general-purpose entrypoint. `AIService.parseInvoice()` is the specialized JSON extractor used by `new_invoice_sheet`. All providers return `'(AI unavailable — try again in a moment)'` on error — never throw to the UI.
 
-Default model: `AIModel.groqLlama33` ([app_state.dart:446](lib/state/app_state.dart#L446)).
+The model fallback chain is defined in the `_models` list at the bottom of `ai_service.dart`. Add/remove/reorder entries freely.
 
 ## Auth deep links (Google OAuth + password reset + email confirmation)
 

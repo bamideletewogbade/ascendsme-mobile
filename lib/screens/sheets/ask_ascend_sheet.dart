@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
-import '../../config.dart';
 import '../../state/app_state.dart';
 import '../../services/ai_service.dart';
 
@@ -84,7 +83,6 @@ class _AskAscendSheetState extends State<AskAscendSheet> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final state = context.watch<AppState>();
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.88,
@@ -105,7 +103,7 @@ class _AskAscendSheetState extends State<AskAscendSheet> {
                   width: 32, height: 32,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
-                      colors: [c.teal, c.tealDeep],
+                      colors: [c.navy, c.navyDeep],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
@@ -121,36 +119,9 @@ class _AskAscendSheetState extends State<AskAscendSheet> {
                     children: [
                       Text('Ask Ascend',
                           style: AppType.heading(size: 16, color: c.text)),
-                      Text('Powered by ${state.aiModel.label}',
+                      Text('Your business advisor',
                           style: AppType.body(size: 11, color: c.textMuted)),
                     ],
-                  ),
-                ),
-                // Model picker button
-                GestureDetector(
-                  onTap: () => _showModelPicker(context, state),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: c.bgInset,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: c.border),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          state.aiModel.badge.isNotEmpty
-                              ? state.aiModel.badge
-                              : 'Model',
-                          style:
-                              AppType.body(size: 11, color: c.textMuted),
-                        ),
-                        const SizedBox(width: 3),
-                        Icon(Icons.expand_more, size: 13, color: c.textMuted),
-                      ],
-                    ),
                   ),
                 ),
               ],
@@ -236,97 +207,6 @@ class _AskAscendSheetState extends State<AskAscendSheet> {
     );
   }
 
-  void _showModelPicker(BuildContext context, AppState state) {
-    final c = context.colors;
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        decoration: BoxDecoration(
-          color: c.bgElevated,
-          borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: EdgeInsets.fromLTRB(
-            20, 0, 20, MediaQuery.of(ctx).padding.bottom + 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SheetHandle(),
-            const SizedBox(height: 4),
-            Text('Choose AI model',
-                style: AppType.heading(size: 18, color: c.text)),
-            const SizedBox(height: 8),
-            Text(
-              'Gemini: free Google AI Studio quota.\nGroq: fast LPU inference, free tier.\nOpenRouter: broad catalogue, free tier.',
-              style: AppType.body(size: 12, color: c.textMuted),
-            ),
-            const SizedBox(height: 16),
-            ...AIModel.values.map(
-              (model) => GestureDetector(
-                onTap: () {
-                  state.setAiModel(model);
-                  Navigator.pop(ctx);
-                },
-                child: Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: state.aiModel == model
-                        ? c.tealSurface
-                        : c.bg,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: state.aiModel == model
-                          ? c.tealSurfaceStrong
-                          : c.border,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(model.label,
-                                style: AppType.body(
-                                    size: 14,
-                                    weight: FontWeight.w600,
-                                    color: c.text)),
-                            Text(
-                              switch (model.provider) {
-                                AIProvider.gemini =>
-                                  'Google Gemini · 1,500 free req/day',
-                                AIProvider.groq =>
-                                  'Groq · Fast LPU inference',
-                                AIProvider.openRouter =>
-                                  'OpenRouter · Free tier',
-                              },
-                              style: AppType.body(
-                                  size: 11.5, color: c.textMuted),
-                            ),
-                          ],
-                        ),
-                      ),
-                      if (model.badge.isNotEmpty)
-                        AppPill(model.badge,
-                            tone: PillTone.teal, small: true),
-                      if (state.aiModel == model) ...[
-                        const SizedBox(width: 8),
-                        Icon(Icons.check_circle,
-                            size: 18, color: c.teal),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 // ── Data ──────────────────────────────────────────────────────────────────────
@@ -377,7 +257,7 @@ class _ChatBubble extends StatelessWidget {
             margin: const EdgeInsets.only(right: 8, bottom: 12),
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [c.teal, c.tealDeep],
+                colors: [c.navy, c.navyDeep],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),

@@ -5,8 +5,10 @@ import '../../config.dart';
 import '../../core/models.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
+import '../../services/invoice_pdf_service.dart';
 import '../../services/supabase_service.dart';
 import '../../state/app_state.dart';
+import '../sheets/edit_proforma_sheet.dart';
 
 /// Detail view for a single invoice. Pushed from the InvoicesScreen list
 /// when the user taps a card.
@@ -86,6 +88,29 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     );
   }
 
+  Future<void> _editProforma(Invoice inv) async {
+    final result = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => EditProformaSheet(invoice: inv),
+    );
+    if (result == true && mounted) {
+      // EditProformaSheet already calls loadInvoices; just refresh financials.
+      context.read<AppState>().loadFinancials();
+    }
+  }
+
+  Future<void> _convertProforma(Invoice inv) async {
+    if (inv.backendId == null) return;
+    await _runAction(
+      () => SupabaseService.convertProformaToInvoice(
+        invoiceId: inv.backendId!,
+      ),
+      errorMessage: 'Could not convert the quote. Try again.',
+    );
+  }
+
   Future<void> _confirmVoid(Invoice inv) async {
     final ok = await _showVoidConfirm(context, inv);
     if (ok != true || inv.backendId == null) return;
@@ -113,6 +138,64 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     await Clipboard.setData(ClipboardData(text: url));
     if (!mounted) return;
     _toastVia(messenger, c, 'Pay link copied');
+  }
+
+  Future<void> _shareAsPdf(Invoice inv) async {
+    try {
+      final state = context.read<AppState>();
+      final biz = state.business;
+      await InvoicePdfService.shareInvoice(
+        invoice: inv,
+        businessName: biz.name,
+        businessHandle: biz.handle,
+        businessCity: biz.city,
+        businessRegion: biz.region,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _toastVia(ScaffoldMessenger.of(context), context.colors,
+          'Could not generate PDF. Try again.');
+    }
+  }
+
+  Future<void> _previewPdf(Invoice inv) async {
+    try {
+      final state = context.read<AppState>();
+      final biz = state.business;
+      await InvoicePdfService.previewInvoice(
+        invoice: inv,
+        businessName: biz.name,
+        businessHandle: biz.handle,
+        businessCity: biz.city,
+        businessRegion: biz.region,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      _toastVia(ScaffoldMessenger.of(context), context.colors,
+          'Could not generate PDF. Try again.');
+    }
+  }
+
+  Future<void> _sendReminder(Invoice inv) async {
+    if (!inv.hasPayLink) {
+      final messenger = ScaffoldMessenger.of(context);
+      final c = context.colors;
+      _toastVia(messenger, c, 'Generate a pay link first to share with the customer.');
+      return;
+    }
+    final url = '${AppConfig.payLinkBaseUrl}${inv.payToken}';
+    final amount = formatGHS(inv.amount);
+    final businessName = context.read<AppState>().business.name;
+    final days = inv.days > 0 ? ' (${inv.days} days overdue)' : '';
+    final msg =
+        'Hi ${inv.customer}, this is a friendly reminder about your invoice ${inv.id} '
+        'for $amount from $businessName$days. '
+        'Pay securely here: $url';
+    final messenger = ScaffoldMessenger.of(context);
+    final c = context.colors;
+    await Clipboard.setData(ClipboardData(text: msg));
+    if (!mounted) return;
+    _toastVia(messenger, c, 'Reminder copied — paste into WhatsApp');
   }
 
   Future<void> _copyShareMessage(Invoice inv) async {
@@ -180,10 +263,15 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
               invoice: inv,
               busy: _busy,
               onMarkPaid: () => _markPaid(inv),
+              onEditProforma: () => _editProforma(inv),
+              onConvertToInvoice: () => _convertProforma(inv),
               onVoid: () => _confirmVoid(inv),
               onEnablePayLink: () => _enablePayLink(inv),
               onCopyPayLink: () => _copyPayLink(inv),
               onShareMessage: () => _copyShareMessage(inv),
+              onSharePdf: () => _shareAsPdf(inv),
+              onPreviewPdf: () => _previewPdf(inv),
+              onSendReminder: () => _sendReminder(inv),
             ),
           ],
         ),
@@ -293,28 +381,124 @@ class _LineItemsCard extends StatelessWidget {
           Text('Items',
               style: AppType.label(size: 10, color: c.textMuted)),
           const SizedBox(height: 10),
+          // Column headers
+          Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Text('Description',
+                    style: AppType.body(
+                        size: 10.5,
+                        weight: FontWeight.w700,
+                        color: c.textFaint)),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 60,
+                child: Text('Qty',
+                    textAlign: TextAlign.center,
+                    style: AppType.body(
+                        size: 10.5,
+                        weight: FontWeight.w700,
+                        color: c.textFaint)),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 80,
+                child: Text('Amount',
+                    textAlign: TextAlign.right,
+                    style: AppType.body(
+                        size: 10.5,
+                        weight: FontWeight.w700,
+                        color: c.textFaint)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Divider(color: c.border, height: 1),
+          const SizedBox(height: 6),
           for (var i = 0; i < items.length; i++) ...[
-            Row(
+            _ItemRow(item: items[i], last: i == items.length - 1),
+          ],
+          // Total row
+          const SizedBox(height: 6),
+          Divider(color: c.borderStrong, height: 1),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text('Total',
+                    style: AppType.body(
+                        size: 14,
+                        weight: FontWeight.w700,
+                        color: c.text)),
+              ),
+              Text(formatGHS(invoice.amount),
+                  style: AppType.body(
+                      size: 14,
+                      weight: FontWeight.w700,
+                      color: c.text)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ItemRow extends StatelessWidget {
+  final InvoiceLineItem item;
+  final bool last;
+
+  const _ItemRow({required this.item, required this.last});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 0 : 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 3,
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Text(items[i].description,
-                      style: AppType.body(size: 13, color: c.text)),
-                ),
-                const SizedBox(width: 12),
-                Text(formatGHS(items[i].amount),
-                    style: AppType.body(
-                        size: 13,
-                        weight: FontWeight.w600,
-                        color: c.text)),
+                Text(item.description,
+                    style: AppType.body(size: 13, color: c.text),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis),
+                if (item.qtyLabel != null) ...[
+                  const SizedBox(height: 2),
+                  Text(item.qtyLabel!,
+                      style: AppType.body(size: 11, color: c.textFaint)),
+                ],
               ],
             ),
-            if (i < items.length - 1) ...[
-              const SizedBox(height: 8),
-              Divider(color: c.border, height: 1),
-              const SizedBox(height: 8),
-            ],
-          ],
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 60,
+            child: Text(
+              item.quantity != null ? '${item.quantity!.round()}' : '1',
+              textAlign: TextAlign.center,
+              style: AppType.body(
+                  size: 13,
+                  weight: FontWeight.w600,
+                  color: c.text),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 80,
+            child: Text(formatGHS(item.amount),
+                textAlign: TextAlign.right,
+                style: AppType.body(
+                    size: 13,
+                    weight: FontWeight.w600,
+                    color: c.text)),
+          ),
         ],
       ),
     );
@@ -424,25 +608,37 @@ class _ActionBar extends StatelessWidget {
   final Invoice invoice;
   final bool busy;
   final VoidCallback onMarkPaid;
+  final VoidCallback onEditProforma;
+  final VoidCallback onConvertToInvoice;
   final VoidCallback onVoid;
   final VoidCallback onEnablePayLink;
   final VoidCallback onCopyPayLink;
   final VoidCallback onShareMessage;
+  final VoidCallback onSharePdf;
+  final VoidCallback onPreviewPdf;
+  final VoidCallback onSendReminder;
 
   const _ActionBar({
     required this.invoice,
     required this.busy,
     required this.onMarkPaid,
+    required this.onEditProforma,
+    required this.onConvertToInvoice,
     required this.onVoid,
     required this.onEnablePayLink,
     required this.onCopyPayLink,
     required this.onShareMessage,
+    required this.onSharePdf,
+    required this.onPreviewPdf,
+    required this.onSendReminder,
   });
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final isProforma = invoice.isProforma;
     final isOpen = invoice.status == 'pending' || invoice.status == 'overdue';
+    final isOverdue = invoice.status == 'overdue';
 
     return Container(
       decoration: BoxDecoration(
@@ -465,10 +661,42 @@ class _ActionBar extends StatelessWidget {
                     ),
                   ),
                 ),
-              )
-            : Column(
+              )              : Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  // ── Proforma actions ──
+                  if (isProforma) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: AppBtn(
+                            'Convert to invoice',
+                            icon: 'north_east',
+                            onTap: onConvertToInvoice,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: AppBtn(
+                            'Cancel quote',
+                            icon: 'close',
+                            variant: BtnVariant.outline,
+                            onTap: onVoid,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    AppBtn(
+                      'Edit quote',
+                      full: true,
+                      icon: 'edit',
+                      variant: BtnVariant.secondary,
+                      onTap: onEditProforma,
+                    ),
+                  ],
+
+                  // ── Open invoice actions ──
                   if (isOpen) ...[
                     if (invoice.hasPayLink) ...[
                       Row(
@@ -503,6 +731,19 @@ class _ActionBar extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                     ],
+
+                    // Reminder button for overdue invoices
+                    if (isOverdue) ...[
+                      AppBtn(
+                        'Send reminder',
+                        full: true,
+                        icon: 'campaign',
+                        variant: BtnVariant.outline,
+                        onTap: onSendReminder,
+                      ),
+                      const SizedBox(height: 10),
+                    ],
+
                     Row(
                       children: [
                         Expanded(
@@ -532,6 +773,32 @@ class _ActionBar extends StatelessWidget {
                         style: AppType.body(size: 13, color: c.textMuted),
                         textAlign: TextAlign.center),
                   ],
+
+                  // PDF share — always visible for any status
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: AppBtn(
+                          'Preview PDF',
+                          icon: 'description',
+                          variant: BtnVariant.secondary,
+                          onTap: onPreviewPdf,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: AppBtn(
+                          'Share as PDF',
+                          icon: 'share',
+                          variant: BtnVariant.outline,
+                          onTap: onSharePdf,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
       ),
@@ -545,7 +812,8 @@ class _ActionBar extends StatelessWidget {
       'paid' => (PillTone.green, 'Paid'),
       'overdue' => (PillTone.rose, 'Overdue'),
       'pending' || 'sent' => (PillTone.orange, 'Pending'),
-      'void' => (PillTone.neutral, 'Cancelled'),
+      'proforma' => (PillTone.neutral, 'Quote'),
+  'void' => (PillTone.neutral, 'Cancelled'),
       _ => (PillTone.neutral, 'Draft'),
     };
 
@@ -597,10 +865,10 @@ Future<String?> _showPaymentMethodSheet(BuildContext context) {
                         width: 36,
                         height: 36,
                         decoration: BoxDecoration(
-                          color: c.tealSurface,
+                          color: c.navySurface,
                           borderRadius: BorderRadius.circular(10),
                         ),
-                        child: Icon(icon, size: 18, color: c.tealDeep),
+                        child: Icon(icon, size: 18, color: c.navy),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -628,9 +896,8 @@ Future<bool?> _showVoidConfirm(BuildContext context, Invoice inv) {
     builder: (ctx) {
       final c = ctx.colors;
       return AlertDialog(
-        backgroundColor: c.bgElevated,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: c.bgElevated,                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20)),
         title: Text('Cancel invoice?',
             style: AppType.heading(size: 18, color: c.text)),
         content: Text(

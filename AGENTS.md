@@ -25,12 +25,13 @@ flutter build apk --release
 - When Supabase keys are absent, the app falls back to mock mode (`AppState._mockAuthed` / `kBusiness`). Preserve this path when editing auth/data flow.
 - PII: pass emails through `AppLogger.maskEmail` and tokens through `AppLogger.maskToken` before logging. Never log raw passwords.
 - The Supabase schema is **shared with the AscendSME web platform** (`ascendsme-b` repo). Don't propose schema changes from the mobile side — flag them for backend review.
+- AI uses a fallback chain: Vertex AI (Firebase) → Groq → OpenRouter. Vertex AI requires Firebase initialization; it's wrapped in try-catch so the app degrades gracefully if Firebase isn't configured. New providers must implement `_ModelAttempt` and be added to the `_models` list in `ai_service.dart`.
 
 ## Don't
 - Don't bypass the `SupabaseService` wrapper.
 - Don't hardcode colors, fonts, or spacing — extend `AppColors` / `AppType` instead.
 - Don't commit `lib/config.dart`.
-- Don't add a new AI provider without an `AIModel` enum entry + a fallback path in `AIService.ask()`.
+- Don't add a new AI provider without adding it to the `_models` fallback chain in `AIService`.
 
 ## Topic docs
 - [DESIGN.md](DESIGN.md) — tokens, theming, typography, UI variants

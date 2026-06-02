@@ -64,7 +64,7 @@ class _Card extends StatelessWidget {
       'urgent' => (PillTone.rose, c.rose),
       'high' => (PillTone.orange, c.orange),
       'medium' => (PillTone.amber, c.amber),
-      _ => (PillTone.teal, c.teal),
+      _ =>      (PillTone.neutral, c.navy),
     };
     final priorityLabel =
         rec.priority[0].toUpperCase() + rec.priority.substring(1);

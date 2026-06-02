@@ -105,6 +105,52 @@ class VerifyScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
 
+          // Pillar breakdown — surfaces the four underlying scores that feed
+          // sustainability_score. Web's scoring engine weights them: F 30%,
+          // C 30%, O 25%, G 15% — the bar widths mirror those weights so the
+          // user sees which pillars matter most for their stage upgrade.
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SectionHeader('Score breakdown'),
+                AppCard(
+                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 6),
+                  child: Column(
+                    children: [
+                      _PillarRow(
+                        label: 'Financial Integrity',
+                        weight: '30%',
+                        score: business.scoreF,
+                        hint: 'Invoices, ledger, bank statements',
+                      ),
+                      _PillarRow(
+                        label: 'Compliance',
+                        weight: '30%',
+                        score: business.scoreC,
+                        hint: 'TIN, RGD, Ghana Card, address',
+                      ),
+                      _PillarRow(
+                        label: 'Operational Velocity',
+                        weight: '25%',
+                        score: business.scoreO,
+                        hint: 'Bookings, quotes, fulfillment',
+                      ),
+                      _PillarRow(
+                        label: 'Governance Stability',
+                        weight: '15%',
+                        score: business.scoreG,
+                        hint: 'Staff, profile, sustainable expenses',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
           // Verification checklist
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -168,7 +214,7 @@ class VerifyScreen extends StatelessWidget {
                       Row(
                         children: [
                           Icon(Icons.savings_outlined,
-                              size: 22, color: c.tealDeep),
+                              size: 22, color: c.navyDeep),
                           const SizedBox(width: 10),
                           Text('Coming soon',
                               style: AppType.heading(
@@ -263,6 +309,76 @@ class _VerifyRow extends StatelessWidget {
             ),
           ),
           AppPill(badgeLabel, tone: tone, small: true),
+        ],
+      ),
+    );
+  }
+}
+
+class _PillarRow extends StatelessWidget {
+  final String label;
+  final String weight;
+  final int score; // 0-100
+  final String hint;
+
+  const _PillarRow({
+    required this.label,
+    required this.weight,
+    required this.score,
+    required this.hint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final pct = (score.clamp(0, 100)) / 100.0;
+    // Bar color grades with progress so users can read "low / mid / high" at
+    // a glance without reading the number. Below 40 = neutral, 40-79 = teal
+    // (growth band), 80+ = green (verified band) — mirrors the tier_status
+    // grey/teal/indigo thresholds on the web side.
+    final barColor = score >= 80
+        ? c.green            : score >= 40
+                ? c.teal
+                : c.borderStrong;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(label,
+                    style: AppType.body(
+                        size: 13, weight: FontWeight.w600, color: c.text)),
+              ),
+              Text('$score',
+                  style: AppType.mono(size: 13, color: c.text)),
+              Text(' / 100',
+                  style: AppType.body(size: 11.5, color: c.textFaint)),
+              const SizedBox(width: 8),
+              AppPill(weight, tone: PillTone.neutral, small: true),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: Stack(
+              children: [
+                Container(height: 6, color: c.bgInset),
+                LayoutBuilder(
+                  builder: (_, constraints) => Container(
+                    height: 6,
+                    width: constraints.maxWidth * pct,
+                    color: barColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(hint,
+              style: AppType.body(size: 11.5, color: c.textMuted)),
         ],
       ),
     );

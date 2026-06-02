@@ -1,16 +1,40 @@
 // Copy this file to lib/config.dart and fill in your keys.
 // lib/config.dart is git-ignored — never commit real credentials.
 //
-// Gemini    → https://aistudio.google.com/apikey          (1,500 req/day free)
-// Groq      → https://console.groq.com/keys               (fast LPU, generous free tier)
-// OpenRouter→ https://openrouter.ai/settings/keys         (free Llama models)
-// Supabase  → Dashboard → Settings → API
+// ── AI Providers ────────────────────────────────────────────────────────────
+// The app uses a fallback chain across multiple models and providers:
+//
+//   1. Vertex AI (Firebase) → console.firebase.google.com  (GCP free quota)
+//      Enables Gemini models through your GCP project. No API key needed —
+//      Firebase Auth + App Check handle authentication.
+//
+//   2. Groq           → console.groq.com/keys        (free dev tier)
+//   3. OpenRouter     → openrouter.ai/settings/keys  (free :free models)
+//
+// Each provider can have MULTIPLE model attempts. If the first model fails
+// (rate limit, timeout, down), the next model in the chain runs automatically.
+// See `lib/services/ai_service.dart` for the full model list — reorder or
+// add/remove entries freely.
+//
+// One key is enough for the app to work. Add more for extra fallback resilience.
+//
+// ── To set up Vertex AI ─────────────────────────────────────────────────────
+//   1. Go to console.firebase.google.com and add your GCP project (ascendsme)
+//   2. Enable Vertex AI: Firebase Console → Build → AI → Vertex AI
+//   3. Enable the Vertex AI API in GCP Console → APIs & Services
+//   4. Run `flutterfire configure` to generate firebase_options.dart
+//   5. Ensure Firebase Auth is enabled (at least Anonymous or Email/Password)
+//
+// ── Supabase ────────────────────────────────────────────────────────────────
+// Dashboard → Settings → API
+//
+// ─────────────────────────────────────────────────────────────────────────────
 
 class AppConfig {
   // ── AI keys ───────────────────────────────────────────────────────────────
-  static const String geminiApiKey     = '';
-  static const String groqApiKey       = '';
-  static const String openRouterApiKey = '';
+  // Vertex AI uses Firebase Auth — no API key needed.
+  static const String groqApiKey       = ''; // Llama 3.3 / Llama 3.1 (fast LPU, free)
+  static const String openRouterApiKey = ''; // :free models + openrouter/free router
 
   // ── Supabase ──────────────────────────────────────────────────────────────
   static const String supabaseUrl      = ''; // e.g. https://xxxx.supabase.co
@@ -25,56 +49,3 @@ class AppConfig {
   // Auth → URL Config allow-list.
   static const String oauthRedirectUrl = 'ascendsme://auth-callback';
 }
-
-enum AIModel {
-  geminiFlash(
-    id: 'gemini-2.0-flash',
-    label: 'Gemini 2.0 Flash',
-    provider: AIProvider.gemini,
-    badge: 'Recommended',
-  ),
-  geminiFlashLite(
-    id: 'gemini-2.0-flash-lite',
-    label: 'Gemini 2.0 Flash Lite',
-    provider: AIProvider.gemini,
-    badge: 'Fast',
-  ),
-  gemini15Flash(
-    id: 'gemini-1.5-flash',
-    label: 'Gemini 1.5 Flash',
-    provider: AIProvider.gemini,
-    badge: '',
-  ),
-  groqLlama33(
-    id: 'llama-3.3-70b-versatile',
-    label: 'Llama 3.3 70B (Groq)',
-    provider: AIProvider.groq,
-    badge: 'Fast · Free',
-  ),
-  llama31(
-    id: 'meta-llama/llama-3.1-8b-instruct:free',
-    label: 'Llama 3.1 8B',
-    provider: AIProvider.openRouter,
-    badge: 'Free',
-  ),
-  llama33(
-    id: 'meta-llama/llama-3.3-70b-instruct:free',
-    label: 'Llama 3.3 70B',
-    provider: AIProvider.openRouter,
-    badge: 'Free · Capable',
-  );
-
-  const AIModel({
-    required this.id,
-    required this.label,
-    required this.provider,
-    required this.badge,
-  });
-
-  final String id;
-  final String label;
-  final AIProvider provider;
-  final String badge;
-}
-
-enum AIProvider { gemini, groq, openRouter }

@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AscendSME Mobile — Updates & Changes Report</title>
+<style>
+  @page {
+    size: A4;
+    margin: 2.2cm 2cm 2.2cm 2cm;
+    @top-center {
+      content: "AscendSME Mobile — Updates & Changes Report";
+      font-size: 8pt;
+      color: #7F8C8D;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-size: 8pt;
+      color: #7F8C8D;
+      font-family: 'Segoe UI', Arial, sans-serif;
+    }
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+    font-size: 11pt;
+    line-height: 1.65;
+    color: #1A2B48;
+    background: #fff;
+    padding: 0;
+  }
+
+  /* ── Cover Page ── */
+  .cover {
+    page-break-after: always;
+    text-align: center;
+    padding-top: 8cm;
+  }
+  .cover .logo {
+    font-size: 48pt;
+    font-weight: 800;
+    color: #1A2B48;
+    letter-spacing: -1px;
+    margin-bottom: 8px;
+  }
+  .cover .logo span {
+    color: #2ECC71;
+  }
+  .cover h1 {
+    font-size: 24pt;
+    font-weight: 700;
+    color: #1A2B48;
+    margin-bottom: 12px;
+    letter-spacing: -0.5px;
+  }
+  .cover .subtitle {
+    font-size: 13pt;
+    color: #44474D;
+    margin-bottom: 32px;
+  }
+  .cover .meta {
+    font-size: 10pt;
+    color: #7F8C8D;
+    line-height: 2;
+  }
+  .cover .meta strong {
+    color: #1A2B48;
+  }
+  .cover .divider {
+    width: 60px;
+    height: 4px;
+    background: linear-gradient(90deg, #1A2B48, #2ECC71);
+    margin: 24px auto;
+    border-radius: 2px;
+  }
+
+  /* ── General ── */
+  h2 {
+    font-size: 16pt;
+    font-weight: 700;
+    color: #1A2B48;
+    margin-top: 32px;
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #1A2B48;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 13pt;
+    font-weight: 600;
+    color: #1A2B48;
+    margin-top: 22px;
+    margin-bottom: 10px;
+    page-break-after: avoid;
+  }
+  h4 {
+    font-size: 11.5pt;
+    font-weight: 600;
+    color: #374765;
+    margin-top: 16px;
+    margin-bottom: 8px;
+  }
+  p {
+    margin-bottom: 10px;
+  }
+
+  /* ── Tables ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 10pt;
+    page-break-inside: avoid;
+  }
+  th {
+    background: #1A2B48;
+    color: #fff;
+    padding: 9px 12px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 9.5pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #E1E3E4;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td {
+    background: #F8F9FA;
+  }
+  td:first-child {
+    font-weight: 600;
+    white-space: nowrap;
+    color: #1A2B48;
+  }
+
+  /* ── Callout boxes ── */
+  .callout {
+    background: #EBEFF5;
+    border-left: 4px solid #1A2B48;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 10.5pt;
+    border-radius: 0 6px 6px 0;
+    page-break-inside: avoid;
+  }
+  .callout strong {
+    color: #1A2B48;
+  }
+
+  .callout-green {
+    background: #E2F7EC;
+    border-left-color: #2ECC71;
+  }
+  .callout-green strong {
+    color: #22A858;
+  }
+
+  /* ── Code blocks ── */
+  pre {
+    background: #F3F4F5;
+    border: 1px solid #E1E3E4;
+    border-radius: 6px;
+    padding: 14px 16px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 9pt;
+    line-height: 1.5;
+    overflow-x: auto;
+    margin: 12px 0;
+    white-space: pre;
+    page-break-inside: avoid;
+  }
+  code {
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 9.5pt;
+    background: #F3F4F5;
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: #1A2B48;
+  }
+  pre code {
+    background: none;
+    padding: 0;
+    border-radius: 0;
+  }
+
+  /* ── Lists ── */
+  ul, ol {
+    margin: 8px 0 8px 22px;
+  }
+  li {
+    margin-bottom: 4px;
+  }
+
+  /* ── Blockquote ── */
+  blockquote {
+    background: #F8F9FA;
+    border-left: 3px solid #2ECC71;
+    padding: 12px 16px;
+    margin: 14px 0;
+    font-size: 10.5pt;
+    font-style: italic;
+    color: #44474D;
+    border-radius: 0 6px 6px 0;
+    page-break-inside: avoid;
+  }
+
+  /* ── TOC ── */
+  .toc {
+    page-break-after: always;
+  }
+  .toc h2 {
+    border-bottom: 3px solid #1A2B48;
+  }
+  .toc ul {
+    list-style: none;
+    margin: 16px 0 0 0;
+    padding: 0;
+  }
+  .toc ul li {
+    padding: 5px 0;
+    border-bottom: 1px dotted #E1E3E4;
+    font-size: 11pt;
+  }
+  .toc ul li a {
+    color: #1A2B48;
+    text-decoration: none;
+  }
+  .toc ul li a:hover {
+    text-decoration: underline;
+  }
+  .toc .toc-indent {
+    padding-left: 24px;
+    font-size: 10pt;
+    color: #44474D;
+  }
+
+  /* ── Section break ── */
+  hr {
+    border: none;
+    border-top: 1px solid #E1E3E4;
+    margin: 28px 0;
+  }
+
+  /* ── Priority badges ── */
+  .badge-high {
+    display: inline-block;
+    background: #FFE9EA;
+    color: #7B0F12;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-medium {
+    display: inline-block;
+    background: #FFF4DA;
+    color: #7A5800;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .badge-low {
+    display: inline-block;
+    background: #E2F7EC;
+    color: #003316;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── File path styling ── */
+  .file {
+    font-family: 'Consolas', 'Courier New', monospace;
+    background: #F3F4F5;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 9.5pt;
+    white-space: nowrap;
+  }
+
+  /* ── Last page ── */
+  .appendix {
+    margin-top: 20px;
+  }
+
+  /* ── Print helper ── */
+  .no-break {
+    page-break-inside: avoid;
+  }
+  .page-break {
+    page-break-before: always;
+  }
+
+  /* ── Two-column layout for priority tables ── */
+  .priority-grid {
+    display: flex;
+    gap: 20px;
+    margin: 14px 0;
+  }
+  .priority-col {
+    flex: 1;
+  }
+  @media print {
+    .priority-grid {
+      gap: 16px;
+    }
+  }
+
+  /* ── Print button (screen only) ── */
+  .print-btn {
+    display: block;
+    width: 220px;
+    margin: 30px auto;
+    padding: 12px 24px;
+    background: #1A2B48;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 11pt;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.2s;
+  }
+  .print-btn:hover {
+    background: #374765;
+  }
+  @media print {
+    .print-btn { display: none; }
+  }
+
+  .print-instructions {
+    text-align: center;
+    padding: 16px;
+    background: #F8F9FA;
+    border: 1px solid #E1E3E4;
+    border-radius: 8px;
+    margin: 20px 0;
+    font-size: 10pt;
+  }
+  @media print {
+    .print-instructions { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─── COVER PAGE ─── -->
+<div class="cover">
+  <div class="logo">Ascend<span>SME</span></div>
+  <div class="divider"></div>
+  <h1>Updates & Changes Report</h1>
+  <p class="subtitle">Mobile Application — Navigation Redesign &amp; Feature Expansion</p>
+  <div class="meta">
+    <strong>Prepared for:</strong> Management Review<br>
+    <strong>Date:</strong> May 28, 2026<br>
+    <strong>Project:</strong> AscendSME Mobile App (Flutter)<br>
+    <strong>Status:</strong> Development Complete — Ready for Review
+  </div>
+</div>
+
+<!-- ─── TABLE OF CONTENTS ─── -->
+<div class="toc">
+  <h2>Table of Contents</h2>
+  <ul>
+    <li><a href="#s1">1. Executive Summary</a></li>
+    <li><a href="#s2">2. What Changed &amp; Why</a></li>
+    <li><a href="#s3">3. Detailed Changes by Area</a></li>
+    <li class="toc-indent"><a href="#s3-1">3.1 Navigation &amp; App Shell</a></li>
+    <li class="toc-indent"><a href="#s3-2">3.2 New Tools Tab</a></li>
+    <li class="toc-indent"><a href="#s3-3">3.3 Online Shop Screen</a></li>
+    <li class="toc-indent"><a href="#s3-4">3.4 Design Refresh (Colours &amp; Typography)</a></li>
+    <li class="toc-indent"><a href="#s3-5">3.5 New Services (Inventory, HRM, Subscriptions)</a></li>
+    <li class="toc-indent"><a href="#s3-6">3.6 AI Service Rewrite</a></li>
+    <li class="toc-indent"><a href="#s3-7">3.7 Home Screen Header Refresh</a></li>
+    <li class="toc-indent"><a href="#s3-8">3.8 New &amp; Updated Data Models</a></li>
+    <li><a href="#s4">4. Visual Summary (Before vs After)</a></li>
+    <li><a href="#s5">5. Files Changed — Complete List</a></li>
+    <li><a href="#s6">6. What This Means for Users</a></li>
+    <li><a href="#s7">7. What This Means for Development</a></li>
+    <li><a href="#s8">8. Next Steps &amp; Recommendations</a></li>
+  </ul>
+</div>
+
+<!-- ─── PRINT INSTRUCTIONS ─── -->
+<div class="print-instructions">
+  <strong>📄 To save as PDF:</strong> Click the button below, or press <strong>Ctrl+P</strong> (Windows) / <strong>Cmd+P</strong> (Mac) and select <strong>"Save as PDF"</strong> as the destination printer.
+  <button class="print-btn" onclick="window.print()">🖨️ Save as PDF</button>
+</div>
+
+<!-- ─── 1. EXECUTIVE SUMMARY ─── -->
+<h2 id="s1">1. Executive Summary</h2>
+
+<p>This update represents a <strong>major navigation redesign</strong> and <strong>feature expansion</strong> for the AscendSME mobile app. The key changes are:</p>
+
+<table>
+  <tr><th>Change</th><th>What It Does</th></tr>
+  <tr><td>Profile tab → Tools tab</td><td>Replaces the old static profile page with a central hub for all business tools</td></tr>
+  <tr><td>New Shop screen</td><td>Adds an online storefront manager (Products, Orders, Settings)</td></tr>
+  <tr><td>New Design System</td><td>Refreshes colours from teal/orange to navy/green — cleaner, more professional</td></tr>
+  <tr><td>3 new back-end services</td><td>Inventory, HRM (staff), and Subscription management</td></tr>
+  <tr><td>8 new data models</td><td>Customer, InventoryItem, SubscriptionPlan, StaffMember, and more</td></tr>
+  <tr><td>AI fallback chain</td><td>More reliable AI responses — tries 3 providers automatically</td></tr>
+  <tr><td>UI polish</td><td>Every screen header now shows the business avatar; home screen greeting is warmer</td></tr>
+</table>
+
+<div class="callout callout-green">
+  <strong>Bottom line:</strong> The app is now a full-featured business management tool with inventory tracking, staff management, subscription plans, and an online shop — all accessible from a redesigned navigation that puts tools front and centre.
+</div>
+
+<!-- ─── 2. WHAT CHANGED & WHY ─── -->
+<h2 id="s2">2. What Changed &amp; Why</h2>
+
+<h3>The Problem We Solved</h3>
+<p>Before these changes, the app had a <strong>Profile tab</strong> that showed only the user's personal details — not very useful for daily business operations. Business tools (invoices, inventory, staff) were scattered and hard to find. The colour scheme used teal, which didn't match the professional brand identity the business wanted.</p>
+
+<h3>Our Approach</h3>
+<p>We redesigned the navigation around the idea of <strong>"tools first"</strong> — every tab should help the user run their business, not just show static info. We also aligned the mobile app's features with what the web platform already offers, so users have a consistent experience across devices.</p>
+
+<hr>
+
+<!-- ─── 3. DETAILED CHANGES ─── -->
+<h2 id="s3">3. Detailed Changes by Area</h2>
+
+<!-- 3.1 Navigation & App Shell -->
+<h3 id="s3-1">3.1 Navigation &amp; App Shell</h3>
+<p><strong>Files affected:</strong> <span class="file">app_shell.dart</span>, <span class="file">common.dart</span>, <span class="file">app_state.dart</span></p>
+
+<h4>Before</h4>
+<pre>┌──────────────────────┐
+│   Bottom Navigation  │
+├──────┬──────┬──────┬─┤
+│ Home │Finance│Custs.│Profile│
+│      │      │      │       │
+└──────┴──────┴──────┴───────┘</pre>
+
+<p>The Profile tab just showed:</p>
+<ul>
+  <li>User's name and email</li>
+  <li>Business name</li>
+  <li>Sign out button</li>
+</ul>
+<p>No quick access to actual business tools.</p>
+
+<h4>After</h4>
+<pre>┌──────────────────────┐
+│   Bottom Navigation  │
+├──────┬──────┬──────┬─┤
+│ Home │Finance│Custs.│ Tools │
+│      │      │      │       │
+└──────┴──────┴──────┴───────┘</pre>
+
+<p>The Tools tab is a <strong>command centre</strong> containing:</p>
+<pre>┌─────────────────────────────┐
+│   👤 Business Identity Card  │ ← Avatar, name, score, industry
+├─────────────────────────────┤
+│   🏪 Shop Feature Card       │ ← Quick access to Online Shop
+├─────────────────────────────┤
+│   ┌──────┬──────┐           │
+│   │Invoices│Inventory│       │ ← 6 tools in a grid
+│   ├──────┼──────┤           │
+│   │ Staff │ Bookings│       │
+│   ├──────┼──────┤           │
+│   │Projects│  Shop  │       │
+│   └──────┴──────┘           │
+├─────────────────────────────┤
+│   📋 Subscription            │ ← Footer links
+│   ✅ Verification            │
+│   ❓ Help &amp; Support          │
+│   🚪 Sign Out               │
+└─────────────────────────────┘</pre>
+
+<div class="callout">
+  <strong>Why:</strong> The Profile tab was a dead end for users. The new Tools tab gives instant access to everything a business owner needs — invoices, inventory, staff, shop, and more — all from one screen.<br><br>
+  <strong>Also improved:</strong> The business avatar now appears in the header of <strong>every tab</strong> (Home, Finance, Customers, Tools). Tapping it opens the profile drawer from anywhere.
+</div>
+
+<!-- 3.2 New Tools Tab -->
+<h3 id="s3-2">3.2 New Tools Tab</h3>
+<p><strong>New file:</strong> <span class="file">tools_screen.dart</span></p>
+<p>This is a brand new screen that replaces the old Profile tab. It's built like a <strong>business dashboard</strong>:</p>
+
+<table>
+  <tr><th>Section</th><th>Content</th></tr>
+  <tr><td>Identity Card</td><td>Business avatar, name, sustainability score, city, industry, verified badge. Settings gear icon in the corner.</td></tr>
+  <tr><td>Shop Feature Card</td><td>A navy gradient card promoting the Online Shop feature — "Set up storefront" and "Manage products" CTAs.</td></tr>
+  <tr><td>Tool Grid</td><td>6 tools in a 2-column grid: Invoicing, Inventory, Staff, Bookings, Projects, Online Shop. Each shows name, description, required subscription tier.</td></tr>
+  <tr><td>Footer Links</td><td>Subscription plan, Verification &amp; funding, Help &amp; support — each navigates to the relevant screen.</td></tr>
+  <tr><td>Sign Out</td><td>Bottom logout with a confirmation dialog.</td></tr>
+</table>
+
+<div class="callout">
+  <strong>Why:</strong> Business owners need a central place to access all their tools. This replaces a static profile with an actionable hub.
+</div>
+
+<!-- 3.3 Online Shop Screen -->
+<h3 id="s3-3">3.3 Online Shop Screen</h3>
+<p><strong>New file:</strong> <span class="file">shop_screen.dart</span></p>
+<p>This is a <strong>full online storefront manager</strong> with 3 tabs:</p>
+
+<pre>┌─────────────────────────────┐
+│  ← Shop           Draft [🔴]│ ← Store toggle
+├─────────────────────────────┤
+│  [Products] [Orders] [Settings] │ ← Tab bar
+└─────────────────────────────┘</pre>
+
+<h4>Products Tab</h4>
+<ul>
+  <li><strong>Store Status Card</strong> — Shows if store is Draft or Live, product count, last updated</li>
+  <li><strong>Stats Row</strong> — Products count, total orders, total revenue</li>
+  <li><strong>Product List</strong> — Items from the business's inventory with product image (or colour placeholder), name, price (GHS), stock badge (green for in stock, red for low stock), "Add" button opens a bottom sheet to create new products, "View all" links to the full Inventory screen</li>
+  <li><strong>Empty State</strong> — Friendly illustration when no products exist yet</li>
+</ul>
+
+<h4>Orders Tab</h4>
+<ul>
+  <li><strong>Status Chips</strong> — Filter orders: Pending, Processing, Shipped, Delivered</li>
+  <li><strong>Order Cards</strong> — Each order shows customer name, order date, item count, amount (GHS), status badge with appropriate colour, items purchased</li>
+  <li><strong>Order Groups</strong> — Orders are grouped logically</li>
+</ul>
+
+<h4>Settings Tab</h4>
+<ul>
+  <li><strong>Store Details</strong> — Store name, description, storefront URL</li>
+  <li><strong>Payments</strong> — "Not set up" with a "Setup" button (placeholder for Paystack/Hubtel integration)</li>
+  <li><strong>Delivery Options</strong> — Placeholder for configuring shipping</li>
+  <li><strong>Storefront Status</strong> — Toggle to enable/disable the store</li>
+  <li><strong>Share Storefront</strong> — Button to share via WhatsApp or copy link to clipboard</li>
+</ul>
+
+<div class="callout">
+  <strong>Why:</strong> The web platform already has an online shop feature. Mobile users needed the same capability to manage products and orders on the go.
+</div>
+
+<!-- 3.4 Design Refresh -->
+<h3 id="s3-4">3.4 Design Refresh (Colours &amp; Typography)</h3>
+<p><strong>File affected:</strong> <span class="file">tokens.dart</span></p>
+
+<h4>Old Colour Palette</h4>
+<table>
+  <tr><th>Colour</th><th>Usage</th></tr>
+  <tr><td>Teal (#00A99D)</td><td>Primary brand colour, CTAs</td></tr>
+  <tr><td>Orange (#FF7A00)</td><td>Accent, warnings</td></tr>
+  <tr><td>Light grey bg</td><td>Background surfaces</td></tr>
+</table>
+
+<h4>New Colour Palette</h4>
+<table>
+  <tr><th>Colour</th><th>Usage</th></tr>
+  <tr><td><strong>Navy (#1A2B48)</strong></td><td><strong>New primary brand</strong> — headings, CTAs, brand elements</td></tr>
+  <tr><td><strong>Green (#2ECC71)</strong></td><td><strong>New positive/CTAs</strong> — success states, growth indicators</td></tr>
+  <tr><td>Blue (#3498DB)</td><td>Interactive elements, links</td></tr>
+  <tr><td>Amber (#F5B021)</td><td>Warnings</td></tr>
+  <tr><td>Rose (#E5484D)</td><td>Errors, destructive actions</td></tr>
+</table>
+
+<p>The old code still has backward-compatible <code>teal</code> getters that map to navy — so existing screens automatically use the new colour without needing individual edits.</p>
+
+<h4>Typography Update</h4>
+<ul>
+  <li>Added <code>letterSpacing</code> as an optional parameter to the label text style</li>
+  <li>This fixed a compile error in the Tools screen</li>
+</ul>
+
+<div class="callout">
+  <strong>Why:</strong> The old teal palette felt dated. Navy + Green is more professional and aligns with the AscendSME brand identity used on the web platform.
+</div>
+
+<!-- 3.5 New Services -->
+<h3 id="s3-5">3.5 New Services (Inventory, HRM, Subscriptions)</h3>
+<p>Three new service files connect the mobile app to the shared Supabase backend:</p>
+
+<h4>Inventory Service (<span class="file">inventory_service.dart</span>)</h4>
+<ul>
+  <li>Fetches all products for a business</li>
+  <li>Creates new products (name, SKU, category, stock, price, type)</li>
+  <li>Updates product stock levels</li>
+  <li>Deletes products</li>
+  <li>All calls go through <code>SupabaseService</code> wrapper (never direct DB access)</li>
+</ul>
+
+<h4>HRM Service (<span class="file">hrm_service.dart</span>)</h4>
+<ul>
+  <li>Fetches all staff members for a business</li>
+  <li>Creates new staff (name, email, phone, role, salary, hire date)</li>
+  <li>Toggles staff active/inactive status</li>
+  <li>Updates staff details</li>
+</ul>
+
+<h4>Subscription Service (<span class="file">subscription_service.dart</span>)</h4>
+<ul>
+  <li>Fetches available subscription plans (Free, Lite, Plus, Elite)</li>
+  <li>Fetches the business's current subscription info</li>
+  <li>Provides pricing data (monthly, quarterly, yearly in GHS)</li>
+</ul>
+
+<div class="callout">
+  <strong>Why:</strong> These services mirror what the web platform already does. They give mobile users access to real data instead of mock data, and they all follow the existing pattern of going through <code>SupabaseService</code>.
+</div>
+
+<!-- 3.6 AI Service Rewrite -->
+<h3 id="s3-6">3.6 AI Service Rewrite</h3>
+<p><strong>File affected:</strong> <span class="file">ai_service.dart</span></p>
+
+<h4>Before</h4>
+<p>The AI service used Gemini API directly with an API key. If Gemini was down, the user got an error.</p>
+
+<h4>After</h4>
+<p>The AI now uses a <strong>fallback chain</strong> of 3 providers:</p>
+
+<pre>User asks a question
+        │
+        ▼
+┌──────────────────────────┐
+│ 1. Vertex AI (Gemini 2.0 │ ← Firebase AI: free GCP quota
+│    Flash)                │
+└────────┬─────────────────┘
+         │ fails → try next
+         ▼
+┌──────────────────────────┐
+│ 2. Groq (Llama 3.3 70B)  │ ← Very fast: free dev tier
+└────────┬─────────────────┘
+         │ fails → try next
+         ▼
+┌──────────────────────────┐
+│ 3. OpenRouter (Llama     │ ← Backup: free tier
+│    3.3 70B free)         │
+└────────┬─────────────────┘
+         │ all fail
+         ▼
+   "AI unavailable
+   — try again"</pre>
+
+<p>Each model attempt is wrapped in proper timeout handling and error logging. The models list is defined at the bottom of the file and can be easily reordered or extended.</p>
+
+<div class="callout">
+  <strong>Why:</strong> More reliable AI. If one provider has an outage or rate limit, the next one in the chain is tried automatically. Users see AI responses more consistently.
+</div>
+
+<!-- 3.7 Home Screen Header Refresh -->
+<h3 id="s3-7">3.7 Home Screen Header Refresh</h3>
+<p><strong>File affected:</strong> <span class="file">home_screen.dart</span></p>
+
+<h4>Before</h4>
+<pre>┌───────────────────┐
+│   Some greeting    │
+│                    │
+└───────────────────┘</pre>
+<p>A simple, plain header.</p>
+
+<h4>After</h4>
+<pre>┌──────────────────────────────────┐
+│  Good afternoon 👋  ✨           │ ← Time-appropriate greeting + sparkle
+│  John's Store                     │ ← Business name
+│  ★ 85  ·  Accra          ⚙️      │ ← Sustainability score + city
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━   │ ← Gradient accent bar (navy → green)
+└──────────────────────────────────┘</pre>
+
+<div class="callout">
+  <strong>Why:</strong> A warmer, more professional header that shows key business info at a glance. The sustainability score and location are always visible, and the gradient bar adds a premium feel.
+</div>
+
+<!-- 3.8 New & Updated Data Models -->
+<h3 id="s3-8">3.8 New &amp; Updated Data Models</h3>
+<p><strong>File affected:</strong> <span class="file">models.dart</span></p>
+
+<h4>New Models</h4>
+<table>
+  <tr><th>Model</th><th>Purpose</th><th>Key Fields</th></tr>
+  <tr><td><code>Customer</code></td><td>A business customer</td><td>id, fullName, phone, email</td></tr>
+  <tr><td><code>InventoryItem</code></td><td>A tracked product in inventory</td><td>id, name, sku, category, currentStock, lowStockThreshold, unitPrice</td></tr>
+  <tr><td><code>SubscriptionPlan</code></td><td>A subscription tier</td><td>id, tierCode, tierName, priceMonthly, priceQuarterly, features</td></tr>
+  <tr><td><code>SubscriptionInfo</code></td><td>Business's active subscription</td><td>id, businessId, tierId, status, currentPeriodEnd</td></tr>
+  <tr><td><code>StaffMember</code></td><td>An employee</td><td>id, businessId, staffName, role, salaryMonthly, isActive</td></tr>
+  <tr><td><code>BillingPeriod</code></td><td>Enum for subscription billing</td><td>monthly, quarterly, yearly</td></tr>
+</table>
+
+<h4>Updated Models</h4>
+<table>
+  <tr><th>Model</th><th>What Changed</th></tr>
+  <tr><td><code>Business</code></td><td>Added 4 pillar scores (scoreF, scoreO, scoreG, scoreC) for sustainability breakdown</td></tr>
+  <tr><td><code>InvoiceLineItem</code></td><td>Now accepts both <code>{description, amount}</code> (legacy) and <code>{description, quantity, price}</code> (canonical) formats</td></tr>
+</table>
+
+<div class="callout">
+  <strong>New helper function:</strong> <code>canonicalIndustry()</code> — Translates mobile dropdown labels ("Food &amp; Beverage") to web's snake_case ("food_catering") to keep data consistent between platforms.
+</div>
+
+<hr>
+
+<!-- ─── 4. VISUAL SUMMARY ─── -->
+<h2 id="s4">4. Visual Summary (Before vs After)</h2>
+
+<h3>Navigation Flow Before</h3>
+<pre>Launch → Splash → Sign In → Home Tab
+                              │
+                    ┌─────────┼─────────┬──────────┐
+                    ▼         ▼         ▼          ▼
+                  Home    Finance  Customers   Profile
+                                              (static)</pre>
+
+<h3>Navigation Flow After</h3>
+<pre>Launch → Splash → Sign In → Home Tab
+                              │
+                    ┌─────────┼─────────┬──────────────┐
+                    ▼         ▼         ▼              ▼
+                  Home    Finance  Customers       Tools
+                                                (hub for all tools)
+                                                   │
+                                    ┌──────────────┼──────────────────┐
+                                    ▼              ▼                  ▼
+                               Invoices     Inventory         Online Shop
+                               Staff        Bookings           │
+                               Projects                    ┌───┼───┐
+                                                           ▼   ▼   ▼
+                                                      Products Orders Settings</pre>
+
+<div class="callout callout-green">
+  <strong>Key takeaway:</strong> Every tab now has the business avatar in the header. Tapping it opens the profile drawer from anywhere in the app.
+</div>
+
+<hr>
+
+<!-- ─── 5. FILES CHANGED ─── -->
+<h2 id="s5">5. Files Changed — Complete List</h2>
+
+<h3>New Files Created (13)</h3>
+<table>
+  <tr><th>File</th><th>What It Does</th></tr>
+  <tr><td><span class="file">lib/screens/tools_screen.dart</span></td><td>The new Tools tab — business command centre</td></tr>
+  <tr><td><span class="file">lib/screens/tools/shop_screen.dart</span></td><td>Online Shop manager (Products, Orders, Settings)</td></tr>
+  <tr><td><span class="file">lib/screens/tools/inventory_screen.dart</span></td><td>Full inventory management screen</td></tr>
+  <tr><td><span class="file">lib/screens/tools/staff_screen.dart</span></td><td>Staff management screen</td></tr>
+  <tr><td><span class="file">lib/screens/tools/subscription_screen.dart</span></td><td>Subscription plans and management</td></tr>
+  <tr><td><span class="file">lib/services/inventory_service.dart</span></td><td>Backend service for product data</td></tr>
+  <tr><td><span class="file">lib/services/hrm_service.dart</span></td><td>Backend service for staff data</td></tr>
+  <tr><td><span class="file">lib/services/subscription_service.dart</span></td><td>Backend service for subscription data</td></tr>
+  <tr><td><span class="file">lib/screens/sheets/add_product_sheet.dart</span></td><td>Bottom sheet to add new products</td></tr>
+  <tr><td><span class="file">lib/screens/sheets/add_staff_sheet.dart</span></td><td>Bottom sheet to add new staff</td></tr>
+  <tr><td><span class="file">lib/core/widgets/customer_selector.dart</span></td><td>Reusable customer picker widget</td></tr>
+  <tr><td><span class="file">lib/core/activity.dart</span></td><td>Activity/feed tracking utilities</td></tr>
+  <tr><td><span class="file">lib/core/expense_mapping.dart</span></td><td>Expense category keyword mapping</td></tr>
+</table>
+
+<h3>Existing Files Modified (20+)</h3>
+<table>
+  <tr><th>File</th><th>What Changed</th></tr>
+  <tr><td><span class="file">lib/main.dart</span></td><td>Updated to handle new navigation</td></tr>
+  <tr><td><span class="file">lib/state/app_state.dart</span></td><td>AppTab.profile renamed to AppTab.tools; added loadInventory()</td></tr>
+  <tr><td><span class="file">lib/screens/app_shell.dart</span></td><td>ToolsScreen replaces ProfileScreen; onOpenDrawer passed to all tabs</td></tr>
+  <tr><td><span class="file">lib/screens/home_screen.dart</span></td><td>Refreshed header with greeting, score, gradient bar</td></tr>
+  <tr><td><span class="file">lib/screens/finance_screen.dart</span></td><td>Avatar header with onOpenDrawer support</td></tr>
+  <tr><td><span class="file">lib/screens/customers_screen.dart</span></td><td>Avatar header with onOpenDrawer support</td></tr>
+  <tr><td><span class="file">lib/core/tokens.dart</span></td><td>Navy+Green colour system; letterSpacing in label style</td></tr>
+  <tr><td><span class="file">lib/core/widgets/common.dart</span></td><td>BottomNav updated to "Tools" with grid icon</td></tr>
+  <tr><td><span class="file">lib/core/models.dart</span></td><td>5 new models, updated Business &amp; InvoiceLineItem</td></tr>
+  <tr><td><span class="file">lib/core/mock_data.dart</span></td><td>Added 'shop' to quick actions; updated app tools list</td></tr>
+  <tr><td><span class="file">lib/services/ai_service.dart</span></td><td>Rewritten with 3-provider fallback chain</td></tr>
+  <tr><td><span class="file">lib/services/supabase_service.dart</span></td><td>Updated for new service patterns</td></tr>
+  <tr><td><span class="file">lib/config.example.dart</span></td><td>Updated config template</td></tr>
+  <tr><td>Multiple screen files</td><td>UI polish, new patterns, improved consistency</td></tr>
+</table>
+
+<h3>Files Deleted (1)</h3>
+<table>
+  <tr><th>File</th><th>Why</th></tr>
+  <tr><td><span class="file">lib/screens/profile_screen.dart</span></td><td>Replaced by the new <span class="file">tools_screen.dart</span></td></tr>
+</table>
+
+<hr>
+
+<!-- ─── 6. WHAT THIS MEANS FOR USERS ─── -->
+<h2 id="s6">6. What This Means for Users</h2>
+
+<h3>✅ What Users Can Do Now That They Couldn't Before</h3>
+<ol>
+  <li><strong>Manage inventory</strong> — Add, edit, and track product stock levels</li>
+  <li><strong>Manage staff</strong> — Add employees, set roles and salaries, activate/deactivate</li>
+  <li><strong>View online shop</strong> — See products, manage orders, configure store settings</li>
+  <li><strong>Access tools from anywhere</strong> — The Tools tab is available from the bottom nav at all times</li>
+  <li><strong>Better AI reliability</strong> — If one AI provider fails, the app automatically tries another</li>
+</ol>
+
+<h3>🎨 What Looks Different</h3>
+<ul>
+  <li><strong>Colours</strong> — Navy blue + green instead of teal + orange. Cleaner, more professional</li>
+  <li><strong>Navigation</strong> — "Tools" instead of "Profile". Much more useful</li>
+  <li><strong>Headers</strong> — Business avatar appears on every screen</li>
+  <li><strong>Home screen</strong> — Warmer greeting, sustainability score always visible</li>
+</ul>
+
+<h3>⚡ What's Faster</h3>
+<ul>
+  <li>AI responses are more reliable with the fallback chain</li>
+  <li>Inventory and staff data load efficiently from Supabase</li>
+</ul>
+
+<hr>
+
+<!-- ─── 7. WHAT THIS MEANS FOR DEVELOPMENT ─── -->
+<h2 id="s7">7. What This Means for Development</h2>
+
+<h3>Architecture Improvements</h3>
+<pre>Before:                    After:
+┌──────────────┐          ┌──────────────┐
+│  Profile Tab │          │   Tools Tab  │
+│  (static)    │          │  (dynamic)   │
+└──────────────┘          └──────┬───────┘
+                                 │
+                    ┌────────────┼────────────┐
+                    ▼            ▼            ▼
+          ┌──────────────┐ ┌──────────┐ ┌──────────┐
+          │  Screens     │ │ Services │ │  Models  │
+          │ (6 tool      │ │ (3 new)  │ │ (5 new)  │
+          │  screens)    │ │          │ │          │
+          └──────────────┘ └──────────┘ └──────────┘</pre>
+
+<h3>Code Quality Improvements</h3>
+<ul>
+  <li><strong>All service calls go through <code>SupabaseService</code></strong> — No direct DB access from screens</li>
+  <li><strong>Consistent error handling</strong> — All services log through <code>AppLogger</code></li>
+  <li><strong>Backward compatibility</strong> — Old colour getters (teal) map to new colours (navy) automatically</li>
+  <li><strong>Extensible AI chain</strong> — New AI providers can be added by adding one entry to a list</li>
+</ul>
+
+<hr>
+
+<!-- ─── 8. NEXT STEPS ─── -->
+<h2 id="s8">8. Next Steps &amp; Recommendations</h2>
+
+<h3>Short Term (1–2 Weeks)</h3>
+<table>
+  <tr><th>Priority</th><th>Task</th><th>Why</th></tr>
+  <tr><td><span class="badge-high">High</span></td><td>Test the Shop screen on real devices</td><td>Ensure product listing and order display work on various screen sizes</td></tr>
+  <tr><td><span class="badge-high">High</span></td><td>Run <code>flutter analyze</code> to fix any remaining warnings</td><td>Clean bill of health before release</td></tr>
+  <tr><td><span class="badge-medium">Medium</span></td><td>Connect real payment integration (Paystack/Hubtel) in Shop Settings</td><td>Currently a placeholder — users can't accept payments yet</td></tr>
+  <tr><td><span class="badge-medium">Medium</span></td><td>Add real order data instead of mock orders in Shop screen</td><td>Currently shows sample data for demonstration</td></tr>
+</table>
+
+<h3>Medium Term (1–2 Months)</h3>
+<table>
+  <tr><th>Priority</th><th>Task</th><th>Why</th></tr>
+  <tr><td><span class="badge-medium">Medium</span></td><td>Add "Bookings" and "Projects" tool screens</td><td>Currently shows "Coming soon" snackbar when tapped</td></tr>
+  <tr><td><span class="badge-medium">Medium</span></td><td>Add pull-to-refresh to Inventory, Staff, and Subscription screens</td><td>Currently only the Home screen has this feature</td></tr>
+  <tr><td><span class="badge-low">Nice-to-have</span></td><td>Add search/filter to Inventory and Staff lists</td><td>Better UX for businesses with lots of data</td></tr>
+</table>
+
+<h3>Long Term (3+ Months)</h3>
+<table>
+  <tr><th>Priority</th><th>Task</th><th>Why</th></tr>
+  <tr><td><span class="badge-low">Nice-to-have</span></td><td>Offline mode for inventory and staff data</td><td>Works without internet connection</td></tr>
+  <tr><td><span class="badge-low">Nice-to-have</span></td><td>Dark mode polish for all new screens</td><td>Visual consistency in dark mode</td></tr>
+  <tr><td><span class="badge-low">Nice-to-have</span></td><td>Analytics — track which tools users open most</td><td>Data-driven decisions for future development</td></tr>
+</table>
+
+<hr>
+
+<!-- ─── APPENDIX ─── -->
+<h2>Appendix: Key Design Principles Followed</h2>
+
+<div class="appendix">
+  <p>Throughout these changes, we followed these principles:</p>
+  <ol>
+    <li><strong>Never hardcode colours</strong> — All colours come from <code>context.colors</code> (the tokens system)</li>
+    <li><strong>All logging goes through <code>AppLogger</code></strong> — No <code>print()</code> statements</li>
+    <li><strong>All Supabase calls go through <code>SupabaseService</code></strong> — No direct DB access</li>
+    <li><strong>Never commit secrets</strong> — <code>lib/config.dart</code> is git-ignored</li>
+    <li><strong>Backward compatibility</strong> — Old code continues to work (e.g., teal colour getters map to navy)</li>
+    <li><strong>Consistent with web platform</strong> — Data models and service patterns match the web backend</li>
+  </ol>
+</div>
+
+<hr>
+
+<blockquote>
+  <strong>Questions about this report?</strong> Contact the development team. Additional documentation is available in the project:
+  <code>DESIGN.md</code> (design tokens, theming), <code>TOOLS.md</code> (services, dev commands),
+  <code>SOUL.md</code> (product voice and mission), <code>AGENTS.md</code> (development conventions).
+</blockquote>
+
+<p style="text-align: center; color: #7F8C8D; font-size: 9pt; margin-top: 32px;">
+  AscendSME Mobile — Updates &amp; Changes Report &nbsp;|&nbsp; Generated May 28, 2026
+</p>
+
+</body>
+</html>

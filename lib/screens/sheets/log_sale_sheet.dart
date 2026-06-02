@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
+import '../../core/widgets/customer_selector.dart';
 import '../../services/supabase_service.dart';
 import '../../state/app_state.dart';
 
@@ -38,10 +39,14 @@ const _paymentMethods = [
 
 class _LogSaleSheetState extends State<LogSaleSheet> {
   final _amountCtrl = TextEditingController();
-  final _customerCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
   String _paymentMethod = 'cash';
   DateTime _date = DateTime.now();
+
+  // Customer state — name is always present (may be free-text for walk-ins),
+  // customerId is set only when the user selected or added a real Customer row.
+  String _customerName = '';
+  String? _customerId;
 
   bool _saving = false;
   String? _error;
@@ -51,7 +56,6 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
   @override
   void dispose() {
     _amountCtrl.dispose();
-    _customerCtrl.dispose();
     _descCtrl.dispose();
     super.dispose();
   }
@@ -60,22 +64,6 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
     final raw = _amountCtrl.text.trim().replaceAll(',', '');
     if (raw.isEmpty) return null;
     return num.tryParse(raw);
-  }
-
-  /// Pull the top 5 unique customer names from existing invoices, sorted by
-  /// most recent first. Empty list if no invoices yet.
-  List<String> _recentCustomers(AppState state) {
-    final seen = <String>{};
-    final list = <String>[];
-    for (final inv in state.invoices) {
-      final name = inv.customer.trim();
-      if (name.isEmpty) continue;
-      if (seen.add(name)) {
-        list.add(name);
-        if (list.length >= 5) break;
-      }
-    }
-    return list;
   }
 
   Future<void> _pickDate() async {
@@ -132,7 +120,8 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
         amount: amount,
         paymentMethod: _paymentMethod,
         paidDate: _date,
-        customerName: _customerCtrl.text.trim(),
+        customerName: _customerName,
+        customerId: _customerId,
         description: _descCtrl.text.trim(),
       );
 
@@ -140,6 +129,8 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
 
       // ignore: unawaited_futures
       appState.loadFinancials();
+      // ignore: unawaited_futures
+      appState.loadReceipts();
       widget.onSaved?.call();
 
       setState(() {
@@ -192,7 +183,7 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
 
   Widget _buildForm(AppColorsX c) {
     final state = context.watch<AppState>();
-    final recents = _recentCustomers(state);
+    final businessId = state.business.id;
 
     return SingleChildScrollView(
       child: Column(
@@ -202,8 +193,26 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
           const SheetHandle(),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 6),
-            child: Text('Quick sale',
-                style: AppType.heading(size: 20, color: c.text)),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text('Quick sale',
+                      style: AppType.heading(size: 20, color: c.text)),
+                ),
+                GestureDetector(
+                  onTap: () => Navigator.pop(context),
+                  child: Container(
+                    width: 32, height: 32,
+                    decoration: BoxDecoration(
+                      color: c.bgInset,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: c.border),
+                    ),
+                    child: Icon(Icons.close, size: 16, color: c.textMuted),
+                  ),
+                ),
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
@@ -281,12 +290,11 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
                             duration: const Duration(milliseconds: 150),
                             padding: const EdgeInsets.symmetric(vertical: 12),
                             decoration: BoxDecoration(
-                              color: active ? c.tealSurface : c.bgInset,
+                              color: active ? c.navySurface : c.bgInset,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                  color: active
-                                      ? c.tealDeep
-                                      : Colors.transparent,
+                              border: Border.all(                                      color: active
+                                              ? c.tealDeep
+                                              : Colors.transparent,
                                   width: 1.5),
                             ),
                             child: Column(
@@ -294,15 +302,12 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
                               children: [
                                 Icon(pm.$3,
                                     size: 18,
-                                    color: active ? c.tealDeep : c.textMuted),
+                                    color: active ? c.navyDeep : c.textMuted),
                                 const SizedBox(height: 4),
                                 Text(pm.$2,
                                     style: AppType.body(
                                         size: 12,
-                                        weight: FontWeight.w600,
-                                        color: active
-                                            ? c.tealDeep
-                                            : c.textMuted)),
+                                        weight: FontWeight.w600,                                    color: active ? c.navyDeep : c.textMuted)),
                               ],
                             ),
                           ),
@@ -317,94 +322,20 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
 
           const SizedBox(height: 16),
 
-          // Customer — optional, with recent chips
+          // Customer — typeahead from the real `customers` table. Selecting
+          // a row sets _customerId; typing free text leaves it null (still
+          // works for walk-in sales). "+ Add" creates a new customer inline.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Customer (optional)',
-                    style: AppType.body(
-                        size: 11.5,
-                        weight: FontWeight.w600,
-                        color: c.textMuted)),
-                const SizedBox(height: 6),
-                Container(
-                  height: 50,
-                  decoration: BoxDecoration(
-                    color: c.bg,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: c.border),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  child: Row(
-                    children: [
-                      Icon(Icons.person_outline,
-                          size: 17, color: c.textFaint),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: TextField(
-                          controller: _customerCtrl,
-                          textInputAction: TextInputAction.next,
-                          style: AppType.body(
-                              size: 14,
-                              weight: FontWeight.w500,
-                              color: c.text),
-                          decoration: InputDecoration(
-                            hintText: 'e.g. Adwoa Mensah',
-                            hintStyle:
-                                AppType.body(size: 14, color: c.textFaint),
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (recents.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 32,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: recents.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 6),
-                      itemBuilder: (ctx, i) {
-                        final name = recents[i];
-                        return GestureDetector(
-                          onTap: () => setState(() {
-                            _customerCtrl.text = name;
-                          }),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: c.bgInset,
-                              borderRadius: BorderRadius.circular(99),
-                              border: Border.all(color: c.border),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.history,
-                                    size: 11, color: c.textMuted),
-                                const SizedBox(width: 4),
-                                Text(name,
-                                    style: AppType.body(
-                                        size: 11.5,
-                                        weight: FontWeight.w600,
-                                        color: c.text)),
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ],
+            child: CustomerSelector(
+              businessId: businessId,
+              label: 'Customer',
+              optional: true,
+              initialName: _customerName,
+              onChanged: (name, customer) {
+                _customerName = name;
+                _customerId = customer?.id;
+              },
             ),
           ),
 
