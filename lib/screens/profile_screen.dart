@@ -4,13 +4,15 @@ import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 import '../core/models.dart';
 import '../state/app_state.dart';
+import '../core/mock_data.dart';
 import 'settings_screen.dart';
 import 'verify_screen.dart';
 import 'help_screen.dart';
 import 'tools/subscription_screen.dart';
 
-/// Profile tab — the business identity hub. Shows the business card,
-/// subscription status, verification progress, and links to settings/help.
+/// Profile tab — the merged business hub. Shows business identity, records &
+/// readiness (merged from Verify), and support access (merged from Help).
+/// Also includes a prominent Ask Ascend entry point.
 class ProfileScreen extends StatelessWidget {
   final VoidCallback? onOpenDrawer;
   const ProfileScreen({super.key, this.onOpenDrawer});
@@ -20,6 +22,8 @@ class ProfileScreen extends StatelessWidget {
     final c = context.colors;
     final state = context.watch<AppState>();
     final business = state.business;
+    final tier = getTier(business.sustainabilityScore);
+    final next = getNextTier(business.sustainabilityScore);
 
     return SafeArea(
       bottom: false,
@@ -41,7 +45,6 @@ class ProfileScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const SettingsScreen()),
             ),
           ),
-
           const SizedBox(height: 24),
 
           // ── Stats row ──
@@ -71,6 +74,16 @@ class ProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
 
+          // ── Records & Readiness (merged from Verify) ──
+          _RecordsSection(business: business, tier: tier, next: next),
+          const SizedBox(height: 20),
+
+          // ── Ask Ascend quick access ──
+          _AskAscendCard(onOpenChat: () {
+            context.read<AppState>().setTab(AppTab.askAscend);
+          }),
+          const SizedBox(height: 20),
+
           // ── Section: Business ──
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -94,7 +107,6 @@ class ProfileScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const VerifyScreen()),
             ),
           ),
-
           const SizedBox(height: 20),
 
           // ── Section: Support ──
@@ -116,74 +128,10 @@ class ProfileScreen extends StatelessWidget {
             trailing: 'v1.0.0',
             onTap: () {},
           ),
-
-          const SizedBox(height: 24),
-
-          // ── Sign out ──
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: GestureDetector(
-              onTap: () => _confirmSignOut(context),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  color: c.rose.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: c.rose.withValues(alpha: 0.2)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.logout, size: 18, color: c.rose),
-                    const SizedBox(width: 10),
-                    Text('Sign out',
-                        style: AppType.body(
-                            size: 14,
-                            weight: FontWeight.w600,
-                            color: c.rose)),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
           const SizedBox(height: 40),
         ],
       ),
     );
-  }
-
-  Future<void> _confirmSignOut(BuildContext context) async {
-    final c = context.colors;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: c.bgElevated,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Sign out?',
-            style: AppType.heading(size: 17, color: c.text)),
-        content: Text(
-          'You will need to sign in again to access your business.',
-          style: AppType.body(size: 13, color: c.textMuted),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Cancel',
-                style: AppType.body(size: 13, weight: FontWeight.w600, color: c.textMuted)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Sign out',
-                style: AppType.body(size: 13, weight: FontWeight.w600, color: c.rose)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    if (!context.mounted) return;
-    Navigator.of(context).popUntil((route) => route.isFirst);
-    context.read<AppState>().signOut();
   }
 }
 
@@ -329,6 +277,248 @@ class _StatCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Records & Readiness section (merged from Verify) ──────────────────────
+
+class _RecordsSection extends StatelessWidget {
+  final Business business;
+  final ScoreTier tier;
+  final ScoreTier? next;
+
+  const _RecordsSection({
+    required this.business,
+    required this.tier,
+    required this.next,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final verifiedCount = kVerificationSteps.where((s) => s.status == 'verified').length;
+    final totalSteps = kVerificationSteps.length;
+    final progress = verifiedCount / totalSteps;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SectionHeader('Records & Readiness'),
+          AppCard(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              children: [
+                // Score ring + foundation indicator
+                Row(
+                  children: [
+                    TierRing(
+                        score: business.sustainabilityScore,
+                        initials: business.initials,
+                        size: 52),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(tier.label,
+                                  style: AppType.heading(size: 15, color: c.text)),
+                              const SizedBox(width: 6),
+                              if (business.verified)
+                                AppPill('Verified', tone: PillTone.green, small: true, icon: 'check_circle')
+                              else
+                                AppPill('Foundation', tone: PillTone.amber, small: true),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            next != null
+                                ? '${verifiedCount}/$totalSteps steps · Next: ${next!.label}'
+                                : '$verifiedCount/$totalSteps steps · Top tier',
+                            style: AppType.body(size: 12, color: c.textMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // Progress bar
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Stack(
+                    children: [
+                      Container(height: 6, color: c.bgInset),
+                      LayoutBuilder(
+                        builder: (_, constraints) => Container(
+                          height: 6,
+                          width: constraints.maxWidth * progress,
+                          color: progress >= 0.8 ? c.green : c.teal,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Pillar scores compact
+                _CompactPillar(
+                  label: 'Financial Integrity',
+                  score: business.scoreF,
+                  hint: 'Invoices, ledger, bank statements',
+                ),
+                const SizedBox(height: 8),
+                _CompactPillar(
+                  label: 'Compliance',
+                  score: business.scoreC,
+                  hint: 'TIN, RGD, Ghana Card, address',
+                ),
+                const SizedBox(height: 8),
+                _CompactPillar(
+                  label: 'Operational Velocity',
+                  score: business.scoreO,
+                  hint: 'Bookings, quotes, fulfillment',
+                ),
+                const SizedBox(height: 8),
+                _CompactPillar(
+                  label: 'Governance Stability',
+                  score: business.scoreG,
+                  hint: 'Staff, profile, sustainable expenses',
+                ),
+                const SizedBox(height: 14),
+
+                // Full verification link
+                AppBtn(
+                  'View full readiness report',
+                  full: true,
+                  variant: BtnVariant.secondary,
+                  icon: 'arrow_forward',
+                  fontSize: 12.5,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const VerifyScreen()),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactPillar extends StatelessWidget {
+  final String label;
+  final int score;
+  final String hint;
+
+  const _CompactPillar({
+    required this.label,
+    required this.score,
+    required this.hint,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final pct = (score.clamp(0, 100)) / 100.0;
+    final barColor = score >= 80
+        ? c.green : score >= 40 ? c.teal : c.borderStrong;
+    return Row(
+      children: [
+        SizedBox(
+          width: 100,
+          child: Text(label,
+              style: AppType.body(size: 11.5, color: c.text),
+              overflow: TextOverflow.ellipsis),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: Stack(
+              children: [
+                Container(height: 5, color: c.bgInset),
+                LayoutBuilder(
+                  builder: (_, constraints) => Container(
+                    height: 5,
+                    width: constraints.maxWidth * pct,
+                    color: barColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text('$score',
+            style: AppType.mono(size: 11, color: c.text)),
+      ],
+    );
+  }
+}
+
+// ── Ask Ascend card ─────────────────────────────────────────────────────────
+
+class _AskAscendCard extends StatelessWidget {
+  final VoidCallback onOpenChat;
+  const _AskAscendCard({required this.onOpenChat});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: AppCard(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Container(
+              width: 44, height: 44,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [c.navy, c.navyDeep],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(Icons.auto_awesome, size: 22, color: Colors.white),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Ask Ascend AI',
+                      style: AppType.heading(size: 15, color: c.text)),
+                  const SizedBox(height: 2),
+                  Text('Get instant answers about your business, 24/7',
+                      style: AppType.body(size: 12, color: c.textMuted)),
+                ],
+              ),
+            ),
+            GestureDetector(
+              onTap: onOpenChat,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                decoration: BoxDecoration(
+                  color: c.teal,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text('Chat',
+                    style: AppType.body(size: 13, weight: FontWeight.w600, color: Colors.white)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

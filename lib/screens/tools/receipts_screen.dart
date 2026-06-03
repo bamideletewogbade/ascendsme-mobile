@@ -17,6 +17,10 @@ class ReceiptsScreen extends StatefulWidget {
 }
 
 class _ReceiptsScreenState extends State<ReceiptsScreen> {
+  String _methodFilter = 'all';
+  String _searchQuery = '';
+  final _searchController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -28,15 +32,45 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Future<void> _refresh() async {
     await context.read<AppState>().loadReceipts();
+  }
+
+  List<Receipt> get _filteredReceipts {
+    var result = context.read<AppState>().receiptList;
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      result = result.where((r) =>
+          (r.clientName?.toLowerCase().contains(q) ?? false) ||
+          (r.receiptNumber?.toLowerCase().contains(q) ?? false)).toList();
+    }
+    if (_methodFilter != 'all') {
+      result = result.where((r) => r.paymentMethod == _methodFilter).toList();
+    }
+    return result;
+  }
+
+  Map<String, int> get _methodCounts {
+    final counts = <String, int>{};
+    for (final r in context.read<AppState>().receiptList) {
+      counts[r.paymentMethod] = (counts[r.paymentMethod] ?? 0) + 1;
+    }
+    return counts;
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final state = context.watch<AppState>();
-    final receipts = state.receiptList;
+    final allReceipts = state.receiptList;
+    final filtered = _filteredReceipts;
+    final counts = _methodCounts;
 
     return Scaffold(
       backgroundColor: c.bg,
@@ -47,13 +81,111 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
               'Receipts',
               onBack: () => Navigator.pop(context),
             ),
+            if (allReceipts.isNotEmpty) ...[
+              // ── Payment method filter chips ──
+              SizedBox(
+                height: 34,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                  children: [
+                    _MethodChip(
+                      label: 'All',
+                      active: _methodFilter == 'all',
+                      count: allReceipts.length,
+                      onTap: () => setState(() => _methodFilter = 'all'),
+                    ),
+                    _MethodChip(
+                      label: 'Cash',
+                      active: _methodFilter == 'cash',
+                      count: counts['cash'] ?? 0,
+                      onTap: () => setState(() => _methodFilter = 'cash'),
+                    ),
+                    _MethodChip(
+                      label: 'Mobile Money',
+                      active: _methodFilter == 'momo',
+                      count: counts['momo'] ?? 0,
+                      onTap: () => setState(() => _methodFilter = 'momo'),
+                    ),
+                    _MethodChip(
+                      label: 'Bank',
+                      active: _methodFilter == 'bank',
+                      count: counts['bank'] ?? 0,
+                      onTap: () => setState(() => _methodFilter = 'bank'),
+                    ),
+                    _MethodChip(
+                      label: 'Card',
+                      active: _methodFilter == 'paystack',
+                      count: counts['paystack'] ?? 0,
+                      onTap: () => setState(() => _methodFilter = 'paystack'),
+                    ),
+                  ],
+                ),
+              ),
+              // ── Search bar ──
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: Container(
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: c.bgInset,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: c.border),
+                  ),
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (v) => setState(() => _searchQuery = v),
+                    style: AppType.body(size: 13, color: c.text),
+                    decoration: InputDecoration(
+                      hintText: 'Search by name or receipt…',
+                      hintStyle: AppType.body(size: 13, color: c.textFaint),
+                      prefixIcon: Icon(Icons.search, size: 16, color: c.textFaint),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? GestureDetector(
+                              onTap: () {
+                                _searchController.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                              child: Icon(Icons.close, size: 16, color: c.textMuted),
+                            )
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                  ),
+                ),
+              ),
+            ],
             Expanded(
               child: RefreshIndicator(
                 onRefresh: _refresh,
                 color: c.teal,
-                child: receipts.isEmpty
+                child: allReceipts.isEmpty
                     ? _EmptyState()
-                    : _ListBody(receipts: receipts, allRawReceipts: state.receipts),
+                    : filtered.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              const SizedBox(height: 48),
+                              Center(
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.search_off, size: 36, color: c.textFaint),
+                                    const SizedBox(height: 8),
+                                    Text('No receipts match',
+                                        style: AppType.body(size: 14, weight: FontWeight.w600, color: c.text)),
+                                    const SizedBox(height: 4),
+                                    Text('Try a different filter or search.',
+                                        style: AppType.body(size: 12, color: c.textMuted)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          )
+                        : _ListBody(
+                            receipts: filtered,
+                            allRawReceipts: state.receipts,
+                          ),
               ),
             ),
           ],
@@ -294,6 +426,73 @@ class _ReceiptCard extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Method filter chip ──────────────────────────────────────────────────────
+
+class _MethodChip extends StatelessWidget {
+  final String label;
+  final bool active;
+  final int count;
+  final VoidCallback onTap;
+
+  const _MethodChip({
+    required this.label,
+    required this.active,
+    required this.count,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: active ? c.navy : c.bgInset,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: active ? c.navy : c.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                switch (label) {
+                  'Cash'        => Icons.money_rounded,
+                  'Mobile Money' => Icons.phone_android_rounded,
+                  'Bank'        => Icons.account_balance_rounded,
+                  'Card'        => Icons.credit_card_rounded,
+                  _             => Icons.receipt_long_outlined,
+                },
+                size: 12,
+                color: active ? Colors.white : c.textMuted,
+              ),
+              const SizedBox(width: 4),
+              Text(label,
+                  style: AppType.body(size: 11.5, weight: FontWeight.w600,
+                      color: active ? Colors.white : c.textMuted)),
+              if (count > 0) ...[
+                const SizedBox(width: 3),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: active ? Colors.white.withValues(alpha: 0.2) : c.border,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Text('$count',
+                      style: AppType.label(size: 8.5, color: active ? Colors.white : c.textFaint)),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

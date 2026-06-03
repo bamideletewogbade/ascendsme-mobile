@@ -20,12 +20,12 @@ void main() {
 
       // All four tabs should be visible
       expect(find.text('Home'), findsOneWidget);
-      expect(find.text('Finance'), findsOneWidget);
-      expect(find.text('Customers'), findsOneWidget);
+      expect(find.text('Tools'), findsOneWidget);
       expect(find.text('Profile'), findsOneWidget);
+      expect(find.text('Ask Ascend'), findsOneWidget);
     });
 
-    testWidgets('renders Ask Ascend FAB on home tab', (tester) async {
+    testWidgets('renders Ask Ascend tab button', (tester) async {
       await tester.pumpWidget(wrapWithProviders(const AppShell()));
       await tester.pumpAndSettle();
 
@@ -44,11 +44,11 @@ void main() {
       // Initially on Home tab
       expect(appState.tab, AppTab.home);
 
-      // Tap Finance tab
-      await tester.tap(find.text('Finance'));
+      // Tap Tools tab
+      await tester.tap(find.text('Tools'));
       await tester.pumpAndSettle();
 
-      expect(appState.tab, AppTab.finance);
+      expect(appState.tab, AppTab.tools);
     });
 
     testWidgets('shows offline banner when offline', (tester) async {

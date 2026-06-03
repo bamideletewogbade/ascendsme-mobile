@@ -8,6 +8,7 @@
 /// All methods require supabaseConfigured to be true; callers should guard
 /// with AppState.supabaseConfigured before routing here.
 
+import '../core/models.dart' show formatGHS;
 import 'app_logger.dart';
 import 'supabase_service.dart';
 
@@ -331,6 +332,55 @@ class CrmService {
       return true;
     } catch (e, st) {
       log.error('CrmService.updateCustomerMetrics failed', error: e, stackTrace: st);
+      return false;
+    }
+  }
+
+  /// One-call helper: get-or-create a CRM profile for [customerName], update its
+  /// metrics (total_orders, total_spent, CLV), and log a 'purchase' interaction.
+  ///
+  /// Call this after marking an invoice paid, logging a sale, or any revenue
+  /// event so the CRM always reflects the latest activity.
+  ///
+  /// Returns true on success, false if anything failed (non-fatal — the revenue
+  /// event itself has already been recorded).
+  static Future<bool> syncAfterPurchase({
+    required String businessId,
+    required String customerName,
+    String? customerEmail,
+    String? customerPhone,
+    required double amountGhs,
+  }) async {
+    log.info('CrmService.syncAfterPurchase — name="$customerName" amount=$amountGhs');
+    try {
+      final profileRow = await getOrCreateCrmProfile(
+        businessId: businessId,
+        name: customerName,
+        email: customerEmail,
+        phone: customerPhone,
+      );
+      if (profileRow == null) return false;
+
+      final profileId = profileRow['id'] as String;
+
+      // Update metrics
+      await updateCustomerMetrics(
+        businessId: businessId,
+        profileId: profileId,
+        amountGhs: amountGhs,
+      );
+
+      // Log purchase interaction
+      await addInteraction(
+        businessId: businessId,
+        customerProfileId: profileId,
+        type: 'purchase',
+        description: 'Payment of ${formatGHS(amountGhs)} received',
+      );
+
+      return true;
+    } catch (e, st) {
+      log.error('CrmService.syncAfterPurchase failed', error: e, stackTrace: st);
       return false;
     }
   }

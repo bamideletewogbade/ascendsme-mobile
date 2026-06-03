@@ -15,7 +15,7 @@ import '../services/cache_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/sync_service.dart';
 
-enum AppTab { home, finance, customers, profile }
+enum AppTab { home, finance, tools, profile, askAscend }
 
 enum NavVariant { classic, pill, fab }
 
@@ -246,6 +246,8 @@ class AppState extends ChangeNotifier {
         _business = Business.fromRow(row);
         // Persist to cache for instant boot on next cold start.
         _cacheProfile(row);
+        // Subscribe to real-time inventory updates
+        _subscribeInventoryChannel();
         log.info('loadBusiness — loaded: id=${_business!.id} name="${_business!.name}" (${sw.elapsedMilliseconds}ms)');
       }
       notifyListeners();
@@ -254,6 +256,7 @@ class AppState extends ChangeNotifier {
         unawaited(loadInvoices());
         unawaited(loadReceipts());
         unawaited(loadExpenses());
+        unawaited(loadInventory());
       }
     } catch (e, st) {
       log.error('loadBusiness failed', error: e, stackTrace: st);
@@ -588,6 +591,7 @@ class AppState extends ChangeNotifier {
   // ── Inventory ──────────────────────────────────────────────────────────────
   List<InventoryItem> _inventory = [];
   bool _inventoryLoading = false;
+  RealtimeChannel? _inventoryChannel;
 
   List<InventoryItem> get inventory => _inventory;
   bool get inventoryLoading => _inventoryLoading;
@@ -595,6 +599,34 @@ class AppState extends ChangeNotifier {
   /// Products with stock at or below their low_stock_threshold.
   List<InventoryItem> get lowStockItems =>
       _inventory.where((p) => p.lowStock).toList();
+
+  /// Subscribe to real-time changes on `user_products` so inventory levels
+  /// update automatically. Call once after loadBusiness succeeds.
+  void _subscribeInventoryChannel() {
+    final bizId = _business?.id;
+    if (!supabaseConfigured || bizId == null) return;
+    _inventoryChannel?.unsubscribe();
+    _inventoryChannel = SupabaseService.client.channel('inventory-changes');
+    _inventoryChannel!
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          table: 'user_products',
+          schema: 'public',
+          callback: (payload) {
+            log.debug('_subscribeInventoryChannel — event=${payload.eventType}');
+            // Reload inventory in the background on any change
+            unawaited(loadInventory());
+          },
+        )
+        .subscribe();
+    log.debug('_subscribeInventoryChannel — subscribed for bizId=$bizId');
+  }
+
+  /// Tear down the real-time channel on dispose.
+  void _unsubscribeInventoryChannel() {
+    _inventoryChannel?.unsubscribe();
+    _inventoryChannel = null;
+  }
 
   Future<void> loadInventory() async {
     final bizId = _business?.id;
@@ -1069,6 +1101,14 @@ class AppState extends ChangeNotifier {
   AppTab get tab => _tab;
   void setTab(AppTab t) { _tab = t; notifyListeners(); }
 
+  /// Pending AI prompt to auto-send when AskAscend tab opens.
+  String? _pendingAiPrompt;
+  String? get pendingAiPrompt => _pendingAiPrompt;
+  /// Set a prompt that AskAscendScreen should auto-send on next activation.
+  void setAiPrompt(String? prompt) { _pendingAiPrompt = prompt; notifyListeners(); }
+  /// Consume (clear) the pending prompt after reading.
+  String? consumeAiPrompt() { final p = _pendingAiPrompt; _pendingAiPrompt = null; return p; }
+
   // ── Appearance ─────────────────────────────────────────────────────────────
   bool _darkMode = false;
   bool get darkMode => _darkMode;
@@ -1081,6 +1121,7 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _unsubscribeInventoryChannel();
     connectivity.removeListener(_onConnectivityChange);
     super.dispose();
   }

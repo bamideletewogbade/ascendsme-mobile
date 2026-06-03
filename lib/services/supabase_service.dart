@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config.dart';
 import '../core/expense_mapping.dart';
@@ -930,6 +931,7 @@ class SupabaseService {
   static Future<Map<String, dynamic>?> generateRecurringInvoice({
     required String templateId,
   }) async {
+
     log.info('generateRecurringInvoice — templateId=$templateId');
     try {
       final result = await client.rpc(
@@ -944,5 +946,316 @@ class SupabaseService {
       log.error('generateRecurringInvoice failed', error: e, stackTrace: st);
       return null;
     }
+  }
+
+  // ── Shop Orders ────────────────────────────────────────────────────────────
+
+  /// Fetch the most recent orders for this business, including their items.
+  static Future<List<Map<String, dynamic>>> fetchOrders({
+    required String businessId,
+    int limit = 50,
+  }) async {
+    log.debug('fetchOrders — bizId=$businessId');
+    final sw = Stopwatch()..start();
+    final rows = await client
+        .from('shop_orders')
+        .select('*, items:shop_order_items(*)')
+        .eq('business_id', businessId)
+        .order('created_at', ascending: false)
+        .limit(limit);
+    log.info('fetchOrders — ${rows.length} orders (${sw.elapsedMilliseconds}ms)');
+    return List<Map<String, dynamic>>.from(rows as List);
+  }
+
+  /// Update the status of a shop order.
+  static Future<void> updateOrderStatus({
+    required String orderId,
+    required String status,
+  }) async {
+    log.info('updateOrderStatus — orderId=$orderId status=$status');
+    final now = DateTime.now().toUtc().toIso8601String();
+    final payload = <String, dynamic>{
+      'status': status,
+      'updated_at': now,
+    };
+    switch (status) {
+      case 'confirmed':
+        payload['confirmed_at'] = now;
+      case 'shipped':
+        payload['dispatched_at'] = now;
+      case 'delivered':
+        payload['delivered_at'] = now;
+      case 'cancelled':
+        payload['cancelled_at'] = now;
+    }
+    await client.from('shop_orders').update(payload).eq('id', orderId);
+    log.info('updateOrderStatus — done');
+  }
+
+  // ── Business Documents (Verification Upload) ───────────────────────────────
+
+  /// Upload a document to Supabase Storage and create a record in
+  /// `business_documents`. Returns the created document row or throws.
+  static Future<Map<String, dynamic>> uploadBusinessDocument({
+    required String businessId,
+    required String name,
+    required String category,
+    required String fileName,
+    required List<int> fileBytes,
+    required String fileType,
+    String? verificationTaskId,
+    String? description,
+  }) async {
+    log.info('uploadBusinessDocument — bizId=$businessId name="$name" type=$fileType');
+    final sw = Stopwatch()..start();
+
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final storagePath = 'verification/$businessId/$category/${timestamp}_$fileName';
+
+    await client.storage
+        .from('verification-documents')
+        .uploadBinary(storagePath, Uint8List.fromList(fileBytes));
+
+    final publicUrl = client.storage
+        .from('verification-documents')
+        .getPublicUrl(storagePath);
+
+    final row = await client.from('business_documents').insert({
+      'business_id': businessId,
+      'name': name,
+      'category': category,
+      if (description != null && description.trim().isNotEmpty)
+        'description': description.trim(),
+      'file_name': fileName,
+      'file_size': fileBytes.length,
+      'file_type': fileType,
+      'storage_path': storagePath,
+      'document_url': publicUrl,
+      if (verificationTaskId != null) 'verification_task_id': verificationTaskId,
+      'uploaded_by_user_id': currentUser?.id,
+    }).select().single();
+
+    log.info('uploadBusinessDocument — done id=${row['id']} (${sw.elapsedMilliseconds}ms)');
+    return Map<String, dynamic>.from(row);
+  }
+
+  /// Fetch documents for a business, optionally filtered by category.
+  static Future<List<Map<String, dynamic>>> fetchBusinessDocuments({
+    required String businessId,
+    String? category,
+  }) async {
+    log.debug('fetchBusinessDocuments — bizId=$businessId category=$category');
+    var query = client
+        .from('business_documents')
+        .select()
+        .eq('business_id', businessId);
+    if (category != null) {
+      query = query.eq('category', category);
+    }
+    final rows = await query.order('created_at', ascending: false);
+    return List<Map<String, dynamic>>.from(rows as List);
+  }
+
+  /// Delete a business document by id. Also removes the file from Storage.
+  static Future<void> deleteBusinessDocument({
+    required String documentId,
+    required String storagePath,
+  }) async {
+    log.info('deleteBusinessDocument — id=$documentId path=$storagePath');
+    // Remove from storage first (best-effort; tolerate 404 if already gone).
+    try {
+      await client.storage
+          .from('verification-documents')
+          .remove([storagePath]);
+    } catch (_) {
+      log.warning('deleteBusinessDocument — storage remove failed (may already be gone)');
+    }
+    // Remove the database record.
+    await client.from('business_documents').delete().eq('id', documentId);
+    log.info('deleteBusinessDocument — done');
+  }
+
+  // ── Expense mutations ──────────────────────────────────────────────────────
+
+  /// Delete an expense by its id.
+  static Future<void> deleteExpense({required String expenseId}) async {
+    log.info('deleteExpense — id=$expenseId');
+    await client.from('expenses').delete().eq('id', expenseId);
+    log.info('deleteExpense — done');
+  }
+
+  /// Update an existing expense's fields. Only sends non-null values.
+  static Future<void> updateExpense({
+    required String expenseId,
+    num? amount,
+    DateTime? date,
+    String? description,
+    String? category,
+    String? paymentSource,
+  }) async {
+    log.info('updateExpense — id=$expenseId');
+    final payload = <String, dynamic>{};
+    if (amount != null) payload['amount_ghs'] = amount;
+    if (date != null) {
+      payload['expense_date'] = date.toIso8601String().substring(0, 10);
+    }
+    if (description != null) payload['description'] = description.trim();
+    if (category != null) {
+      final mapping = mapExpense(
+        manualCategory: category,
+        description: description,
+      );
+      payload['category'] = mapping.manualCategory;
+      payload['mapped_category'] = mapping.mappedCategory;
+      payload['sustainability_tagged'] = mapping.sustainabilityTagged;
+    }
+    if (paymentSource != null) payload['payment_source'] = paymentSource;
+    if (payload.isEmpty) return;
+    await client.from('expenses').update(payload).eq('id', expenseId);
+    log.info('updateExpense — done keys=${payload.keys.toList()}');
+  }
+
+  // ── Payment Transactions ───────────────────────────────────────────────────
+
+  // ── Support Requests ───────────────────────────────────────────────────────
+
+  // ── Inventory Reservations ────────────────────────────────────────────────
+
+  /// Create a hard reservation for a product. This deducts from available stock
+  /// by inserting an `inventory_reservations` row with status 'active'.
+  ///
+  /// The [referenceId] links the reservation to the entity that triggered it
+  /// (e.g. invoice_id for invoices). [reservationType] must be one of
+  /// 'invoice' | 'booking' | 'shop_order'.
+  static Future<Map<String, dynamic>> createProductReservation({
+    required String businessId,
+    required String productId,
+    required int quantity,
+    required String reservationType,
+    required String referenceId,
+    int expiresInHours = 48,
+  }) async {
+    log.info('createProductReservation — productId=$productId qty=$quantity type=$reservationType ref=$referenceId');
+    final expiresAt = DateTime.now().add(Duration(hours: expiresInHours));
+    final row = await client
+        .from('inventory_reservations')
+        .insert({
+          'business_id': businessId,
+          'product_id': productId,
+          'quantity_reserved': quantity,
+          'reservation_type': reservationType,
+          'reference_id': referenceId,
+          'status': 'active',
+          'expires_at': expiresAt.toUtc().toIso8601String(),
+        })
+        .select()
+        .single();
+    log.info('createProductReservation — done id=${row['id']}');
+    return Map<String, dynamic>.from(row);
+  }
+
+  /// Release a reservation (e.g. when an invoice is voided). Sets status to
+  /// 'released' so the stock is available again.
+  static Future<void> releaseReservation({required String reservationId}) async {
+    log.info('releaseReservation — id=$reservationId');
+    await client
+        .from('inventory_reservations')
+        .update({'status': 'released', 'released_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', reservationId);
+    log.info('releaseReservation — done');
+  }
+
+  /// Release all active reservations linked to a reference (e.g. voiding an
+  /// invoice that had multiple inventory items reserved).
+  static Future<void> releaseReservationsByReference({
+    required String referenceId,
+    required String reservationType,
+  }) async {
+    log.info('releaseReservationsByReference — ref=$referenceId type=$reservationType');
+    await client
+        .from('inventory_reservations')
+        .update({'status': 'released', 'released_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('reference_id', referenceId)
+        .eq('reservation_type', reservationType)
+        .eq('status', 'active');
+    log.info('releaseReservationsByReference — done');
+  }
+
+  /// Fulfill a reservation — marks it as fulfilled (stock was actually
+  /// consumed). Called when an invoice is marked paid.
+  static Future<void> fulfillReservation({required String reservationId}) async {
+    log.info('fulfillReservation — id=$reservationId');
+    await client
+        .from('inventory_reservations')
+        .update({'status': 'fulfilled', 'fulfilled_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', reservationId);
+    log.info('fulfillReservation — done');
+  }
+
+  /// Fulfill all active reservations linked to a reference (e.g. marking an
+  /// invoice as paid fulfills all its inventory reservations).
+  static Future<void> fulfillReservationsByReference({
+    required String referenceId,
+    required String reservationType,
+  }) async {
+    log.info('fulfillReservationsByReference — ref=$referenceId type=$reservationType');
+    await client
+        .from('inventory_reservations')
+        .update({'status': 'fulfilled', 'fulfilled_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('reference_id', referenceId)
+        .eq('reservation_type', reservationType)
+        .eq('status', 'active');
+    log.info('fulfillReservationsByReference — done');
+  }
+
+  /// Log an in-app support request captured by the Ask Ascend AI chatbot.
+  /// Creates a row in the `support_requests` table so the team can triage it.
+  static Future<void> logSupportRequest({
+    required String? businessId,
+    required String description,
+  }) async {
+    final uid = currentUser?.id;
+    log.info('logSupportRequest — bizId=$businessId uid=$uid');
+    try {
+      await client.from('support_requests').insert({
+        if (uid != null) 'user_id': uid,
+        if (businessId != null && businessId.isNotEmpty)
+          'business_id': businessId,
+        'subject': 'In-app support request',
+        'description': description,
+        'source': 'mobile_ai_chat',
+        'status': 'new',
+      });
+      log.info('logSupportRequest — done');
+    } catch (e, st) {
+      log.error('logSupportRequest failed', error: e, stackTrace: st);
+    }
+  }
+
+  // ── Payment Transactions ───────────────────────────────────────────────────
+
+  /// Record a completed payment transaction.
+  static Future<Map<String, dynamic>> createPaymentTransaction({
+    required String businessId,
+    String? subscriptionId,
+    required int amountGhs,
+    required String provider,
+    required String reference,
+    String status = 'completed',
+    String? metadata,
+  }) async {
+    log.info('createPaymentTransaction — bizId=$businessId ref=$reference amount=$amountGhs');
+    final row = await client.from('payment_transactions').insert({
+      'business_id': businessId,
+      if (subscriptionId != null) 'subscription_id': subscriptionId,
+      'amount_ghs': amountGhs,
+      'currency': 'GHS',
+      'provider': provider,
+      'reference': reference,
+      'status': status,
+      if (metadata != null) 'metadata': metadata,
+    }).select().single();
+    log.info('createPaymentTransaction — done id=${row['id']}');
+    return Map<String, dynamic>.from(row);
   }
 }

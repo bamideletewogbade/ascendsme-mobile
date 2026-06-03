@@ -84,12 +84,12 @@ void main() {
 
     test('setTab changes tab', () {
       final state = createTestAppState();
-      state.setTab(AppTab.finance);
-      expect(state.tab, AppTab.finance);
-      state.setTab(AppTab.customers);
-      expect(state.tab, AppTab.customers);
+      state.setTab(AppTab.tools);
+      expect(state.tab, AppTab.tools);
       state.setTab(AppTab.profile);
       expect(state.tab, AppTab.profile);
+      state.setTab(AppTab.askAscend);
+      expect(state.tab, AppTab.askAscend);
     });
   });
 

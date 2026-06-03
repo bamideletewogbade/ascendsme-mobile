@@ -10,6 +10,7 @@ import '../services/ai_service.dart';
 import '../state/app_state.dart';
 import 'home_skeleton.dart';
 import 'recommendations_screen.dart';
+import 'tools/activity_screen.dart';
 
 // Single, opinionated home — cash flow first, then quick actions, then the
 // recommendations that actually move the user's business. No layout switcher,
@@ -90,6 +91,7 @@ class HomeScreen extends StatelessWidget {
                 ),
             const SizedBox(height: 8),
             _DailyBrief(onAction: onAction),
+            const SizedBox(height: 8),
             const SizedBox(height: 22),
             const _ActivityFeed(),
           ],
@@ -100,9 +102,8 @@ class HomeScreen extends StatelessWidget {
 }
 
 // ── Header ──────────────────────────────────────────────────────────────────
-/// Polished greeting area. Avatar + notification bell on the ends, with
-/// greeting (inline) + business name in a single row, and a thin teal-green
-/// gradient accent bar as a subtle divider.
+/// Clean two-line greeting area: avatar + greeting on top row, business name
+/// below in muted text. Long business names don't crowd the greeting.
 class _Header extends StatelessWidget {
   final VoidCallback onOpenDrawer;
   final void Function(String) onAction;
@@ -114,6 +115,14 @@ class _Header extends StatelessWidget {
     if (h < 12) return 'Good morning';
     if (h < 17) return 'Good afternoon';
     return 'Good evening';
+  }
+
+  static String _tierShortLabel(String tier) {
+    if (tier.contains('Free')) return 'FREE';
+    if (tier.contains('Lite')) return 'LITE';
+    if (tier.contains('Plus')) return 'PLUS';
+    if (tier.contains('Elite')) return 'ELITE';
+    return 'FREE';
   }
 
   @override
@@ -130,7 +139,7 @@ class _Header extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Avatar + greeting (inline) + name + bell ──
+          // ── Avatar + greeting + bell ──
           Row(
             children: [
               GestureDetector(
@@ -139,26 +148,48 @@ class _Header extends StatelessWidget {
               ),
               const SizedBox(width: 14),
               Expanded(
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Flexible(
-                      child: Text(greeting,
-                          style: AppType.body(size: 16, weight: FontWeight.w600, color: c.text),
-                          overflow: TextOverflow.ellipsis),
+                    Row(
+                      children: [
+                        Text(greeting,
+                            style: AppType.body(size: 16, weight: FontWeight.w600, color: c.text),
+                            overflow: TextOverflow.ellipsis),
+                        const SizedBox(width: 4),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 3),
+                          child: Icon(Icons.auto_awesome, size: 13, color: c.green),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 4),
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 3),
-                      child: Icon(Icons.auto_awesome, size: 13, color: c.green),
-                    ),
-                    const SizedBox(width: 6),
-                    Text('·',
-                        style: AppType.body(size: 14, color: c.textFaint)),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(business.name,
-                          style: AppType.body(size: 14, weight: FontWeight.w500, color: c.textMuted),
-                          overflow: TextOverflow.ellipsis),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(business.name,
+                              style: AppType.body(size: 13, weight: FontWeight.w500, color: c.textMuted),
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                        const SizedBox(width: 6),
+                        // Subtle subscription tier badge
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: c.green.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            _tierShortLabel(business.tier),
+                            style: AppType.body(
+                              size: 8.5,
+                              weight: FontWeight.w700,
+                              color: c.green,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -179,30 +210,24 @@ class _Header extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 16),
-
-          // ── Gradient accent bar ──
-          Container(
-            height: 3,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(2),
-              gradient: LinearGradient(
-                colors: [c.teal.withValues(alpha: 0.4), c.green.withValues(alpha: 0.6), Colors.transparent],
-                stops: const [0.0, 0.4, 1.0],
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 }
 
-// ── Quick actions ──────────────────────────────────────────────────────────
+// ── Quick tools ────────────────────────────────────────────────────────────
 class _QuickActions extends StatelessWidget {
   final void Function(String) onAction;
 
   const _QuickActions({required this.onAction});
+
+  static const _quickTools = [
+    QuickAction(id: 'invoice',  label: 'Invoicing',  icon: 'description', tone: 'teal'),
+    QuickAction(id: 'sale',     label: 'Log sale',   icon: 'payments',    tone: 'teal'),
+    QuickAction(id: 'expense',  label: 'Expense',    icon: 'receipt',     tone: 'orange'),
+    QuickAction(id: 'tools',    label: 'More',       icon: 'grid_view',   tone: 'teal'),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -211,7 +236,7 @@ class _QuickActions extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionHeader('Quick actions'),
+          SectionHeader('Quick tools'),
           GridView.count(
             crossAxisCount: 4,
             shrinkWrap: true,
@@ -219,7 +244,7 @@ class _QuickActions extends StatelessWidget {
             mainAxisSpacing: 8,
             crossAxisSpacing: 8,
             childAspectRatio: 0.85,
-            children: kQuickActions
+            children: _quickTools
                 .map((a) => _QuickTile(action: a, onTap: () => onAction(a.id)))
                 .toList(),
           ),
@@ -276,13 +301,12 @@ class _RecommendationCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final (tone, dotColor) = switch (rec.priority) {
-      'urgent' => (PillTone.rose, c.rose),
-      'high'   => (PillTone.orange, c.orange),
-      'medium' => (PillTone.amber, c.amber),
-      _        => (PillTone.teal, c.teal),
+    final dotColor = switch (rec.priority) {
+      'urgent' => c.rose,
+      'high'   => c.orange,
+      'medium' => c.amber,
+      _        => c.teal,
     };
-    final priorityLabel = rec.priority[0].toUpperCase() + rec.priority.substring(1);
 
     return AppCard(
       padding: const EdgeInsets.all(16),
@@ -295,9 +319,7 @@ class _RecommendationCard extends StatelessWidget {
                   width: 8, height: 8,
                   decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle)),
               const SizedBox(width: 7),
-              AppPill(priorityLabel, tone: tone, small: true),
-              const Spacer(),
-              Text('${rec.minutes} min',
+              Text(rec.minutes == 1 ? '1 min' : '${rec.minutes} min',
                   style: AppType.body(size: 11.5, color: c.textMuted)),
             ],
           ),
@@ -308,17 +330,11 @@ class _RecommendationCard extends StatelessWidget {
           Text(rec.why,
               style: AppType.body(size: 12.5, color: c.textMuted)),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              AppBtn(
-                rec.cta,
-                variant: BtnVariant.secondary,
-                fontSize: 12.5,
-                onTap: () => onAction(rec.id),
-              ),
-              const SizedBox(width: 8),
-              AppPill(rec.impact, tone: PillTone.green, small: true),
-            ],
+          AppBtn(
+            rec.cta,
+            variant: BtnVariant.secondary,
+            fontSize: 12.5,
+            onTap: () => onAction(rec.id),
           ),
         ],
       ),
@@ -647,11 +663,10 @@ class _CashFlowHero extends StatelessWidget {
             const SizedBox(width: 12),
             _SustainabilityScoreLarge(business: business),
           ],
-        ),
-        const SizedBox(height: 18),
-        Container(
-            height: 1,
-            color: Colors.white.withValues(alpha: 0.10)),
+        ),        const SizedBox(height: 18),
+            Container(
+                height: 1,
+                color: Colors.white.withValues(alpha: 0.10)),
         const SizedBox(height: 12),
         Row(
           children: [
@@ -659,8 +674,6 @@ class _CashFlowHero extends StatelessWidget {
               child: _HeroStat(
                 label: 'Revenue',
                 amount: formatGHS(inflow),
-                changePct: f.revenueChangePctVsLastMonth,
-                positive: true,
               ),
             ),
             Container(
@@ -673,8 +686,6 @@ class _CashFlowHero extends StatelessWidget {
               child: _HeroStat(
                 label: 'Expenses',
                 amount: formatGHS(outflow),
-                changePct: f.expensesChangePctVsLastMonth,
-                positive: false,
               ),
             ),
           ],
@@ -818,27 +829,15 @@ class _CashFlowHero extends StatelessWidget {
 class _HeroStat extends StatelessWidget {
   final String label;
   final String amount;
-  final double? changePct;
-  final bool positive;
 
   const _HeroStat({
     required this.label,
     required this.amount,
-    required this.changePct,
-    required this.positive,
   });
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final pct = changePct;
-    final pctText = formatChangePct(pct);
-    final isUp = pct != null && pct > 0;
-    final isDown = pct != null && pct < 0;
-    final goodMove = positive ? isUp : isDown;
-    final chipColor = (isUp || isDown)
-        ? (goodMove ? c.green : c.rose)
-        : Colors.white.withValues(alpha: 0.6);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -851,30 +850,6 @@ class _HeroStat extends StatelessWidget {
         const SizedBox(height: 4),
         Text(amount,
             style: AppType.heading(size: 17, color: Colors.white)),
-        const SizedBox(height: 3),
-        if (pctText != null)
-          Row(
-            children: [
-              Icon(
-                isUp
-                    ? Icons.trending_up
-                    : (isDown ? Icons.trending_down : Icons.remove),
-                size: 12,
-                color: chipColor,
-              ),
-              const SizedBox(width: 3),
-              Text('$pctText vs last',
-                  style: AppType.body(
-                      size: 11,
-                      weight: FontWeight.w600,
-                      color: chipColor)),
-            ],
-          )
-        else
-          Text('No prior month',
-              style: AppType.body(
-                  size: 11,
-                  color: Colors.white.withValues(alpha: 0.4))),
       ],
     );
   }
@@ -923,32 +898,6 @@ class _SustainabilityScoreLarge extends StatelessWidget {
                   ],
                 ),
               ),
-            ),
-          ),
-          const SizedBox(height: 6),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: tierColor.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(99),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6, height: 6,
-                  decoration: BoxDecoration(
-                    color: tierColor,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Text(tier.label,
-                    style: AppType.body(
-                        size: 10,
-                        weight: FontWeight.w600,
-                        color: tierColor)),
-              ],
             ),
           ),
         ],
@@ -1012,7 +961,17 @@ class _ActivityFeed extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SectionHeader('Recent activity'),
+          SectionHeader(
+            'Recent activity',
+            action: events.isNotEmpty ? 'View all' : null,
+            onAction: events.isNotEmpty
+                ? () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const ActivityScreen()),
+                    )
+                : null,
+          ),
           if (events.isEmpty)
             AppCard(
               padding: const EdgeInsets.symmetric(

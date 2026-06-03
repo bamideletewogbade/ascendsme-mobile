@@ -8,6 +8,12 @@ class ActivityEvent {
   final String? subtitle;
   final DateTime time;
   final num? amount;
+  /// Backend UUID of the related invoice, if any (invoiceSent / invoicePaid).
+  final String? invoiceId;
+  /// Backend UUID of the related receipt, if any (saleLogged).
+  final String? receiptId;
+  /// Backend UUID of the related expense, if any (expenseLogged).
+  final String? expenseId;
 
   const ActivityEvent({
     required this.kind,
@@ -15,6 +21,9 @@ class ActivityEvent {
     required this.time,
     this.subtitle,
     this.amount,
+    this.invoiceId,
+    this.receiptId,
+    this.expenseId,
   });
 }
 
@@ -47,6 +56,7 @@ List<ActivityEvent> buildActivityFeed({
         subtitle: null,
         time: t,
         amount: inv.amount,
+        invoiceId: inv.backendId,
       ));
     } else {
       // pending / sent / overdue → "invoice sent" event
@@ -56,6 +66,7 @@ List<ActivityEvent> buildActivityFeed({
         subtitle: inv.status == 'overdue' ? 'Overdue' : null,
         time: t,
         amount: inv.amount,
+        invoiceId: inv.backendId,
       ));
     }
   }
@@ -86,6 +97,7 @@ List<ActivityEvent> buildActivityFeed({
       subtitle: null,
       time: t,
       amount: amount,
+      receiptId: r['id'] as String?,
     ));
   }
 
@@ -106,6 +118,7 @@ List<ActivityEvent> buildActivityFeed({
       subtitle: null,
       time: t,
       amount: amount,
+      expenseId: e['id'] as String?,
     ));
   }
 

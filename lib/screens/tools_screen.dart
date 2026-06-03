@@ -4,174 +4,195 @@ import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 import '../state/app_state.dart';
 import 'settings_screen.dart';
-import 'verify_screen.dart';
-import 'help_screen.dart';
 import 'tools/invoices_screen.dart';
 import 'tools/inventory_screen.dart';
 import 'tools/staff_screen.dart';
 import 'tools/subscription_screen.dart';
 import 'tools/shop_screen.dart';
-import 'tools/recurring_invoices_screen.dart';
-import 'tools/receipts_screen.dart';
-import 'tools/expenses_screen.dart';
 import 'tools/booking_screen.dart';
+import 'tools/cash_flow_screen.dart';
+import 'tools/documents_screen.dart';
+import 'tools/crm_screen.dart';
+import 'tools/project_screen.dart';
 
-/// Tools tab — replaces the old Profile tab. Serves as the operations hub:
-///   - Business identity card at top
-///   - Featured Shop section with prominent CTA
-///   - Grid of all business tools
-///   - Footer links (subscription, verification, help, sign out)
-///
-/// Profile/account access is handled via:
-///   - [onOpenDrawer] → opens the ProfileDrawer (avatar tap)
-///   - Gear icon in header → pushes SettingsScreen
-class ToolsScreen extends StatelessWidget {
+/// Tools tab — shows all available business tools with plan-based availability
+/// and a search/filter bar.
+class ToolsScreen extends StatefulWidget {
   final VoidCallback? onOpenDrawer;
   const ToolsScreen({super.key, this.onOpenDrawer});
+
+  @override
+  State<ToolsScreen> createState() => _ToolsScreenState();
+}
+
+class _ToolsScreenState extends State<ToolsScreen> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _searchCtrl.addListener(() {
+      setState(() => _searchQuery = _searchCtrl.text.trim().toLowerCase());
+    });
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  /// The canonical tool list matching the user's requested tools.
+  /// Tier requirements: 'free' (always), 'lite', 'plus', 'elite'.
+  static const _allTools = [
+    _ToolEntry('invoicing', 'Invoicing', Icons.description_outlined, 'Create & send invoices, track payments', 'free'),
+    _ToolEntry('booking', 'Booking Portal', Icons.calendar_today_outlined, 'Client appointments & scheduling', 'free'),
+    _ToolEntry('documents', 'Document Vault', Icons.folder_outlined, 'Upload & manage business documents', 'lite'),
+    _ToolEntry('shop', 'My Shop', Icons.storefront_outlined, 'Online storefront & order management', 'lite'),
+    _ToolEntry('crm', 'CRM', Icons.people_outline, 'Customer management & insights', 'free'),
+    _ToolEntry('finance', 'Finance & Accounting', Icons.account_balance_wallet_outlined, 'Cash flow, receipts, expense tracking', 'free'),
+    _ToolEntry('inventory', 'Inventory', Icons.inventory_2_outlined, 'Stock tracking & low-stock alerts', 'lite'),
+    _ToolEntry('projects', 'Project Management', Icons.view_kanban_outlined, 'Task boards & milestone tracking', 'plus'),
+    _ToolEntry('staff', 'HRM & Staff', Icons.people_outline, 'Team management & payroll', 'plus'),
+  ];
+
+  /// Map the display tier string back to a tier code.
+  static String _tierCode(String displayTier) {
+    if (displayTier.contains('Elite')) return 'elite';
+    if (displayTier.contains('Plus')) return 'plus';
+    if (displayTier.contains('Lite')) return 'lite';
+    return 'free';
+  }
+
+  static bool _toolAvailable(String toolTier, String businessTierCode) {
+    const tierOrder = ['free', 'lite', 'plus', 'elite'];
+    final toolIdx = tierOrder.indexOf(toolTier);
+    final bizIdx = tierOrder.indexOf(businessTierCode);
+    if (toolIdx == -1 || bizIdx == -1) return toolTier == 'free';
+    return toolIdx <= bizIdx;
+  }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final state = context.watch<AppState>();
     final business = state.business;
+    final tierCode = _tierCode(business.tier);
+
+    final totalTools = _allTools.length;
+    final availableTools = _allTools.where((t) => _toolAvailable(t.tier, tierCode)).length;
+
+    // Filter by search query
+    final filteredTools = _searchQuery.isEmpty
+        ? _allTools
+        : _allTools.where((t) =>
+            t.name.toLowerCase().contains(_searchQuery) ||
+            t.description.toLowerCase().contains(_searchQuery)).toList();
+
+    void navigateTool(String id) {
+      if (id == 'projects' && !_toolAvailable('plus', tierCode)) {
+        _showLockedSnackBar(context, 'Project Management requires the Plus plan');
+        return;
+      }
+      final route = switch (id) {
+        'invoicing' => MaterialPageRoute(builder: (_) => const InvoicesScreen()),
+        'inventory' => MaterialPageRoute(builder: (_) => const InventoryScreen()),
+        'staff'     => MaterialPageRoute(builder: (_) => const StaffScreen()),
+        'shop'      => MaterialPageRoute(builder: (_) => const ShopScreen()),
+        'booking'   => MaterialPageRoute(builder: (_) => const BookingScreen()),
+        'documents' => MaterialPageRoute(builder: (_) => const DocumentsScreen()),
+        'crm'       => MaterialPageRoute(builder: (_) => const CrmScreen()),
+        'finance'   => MaterialPageRoute(builder: (_) => const CashFlowForecastScreen()),
+        'projects'  => MaterialPageRoute(builder: (_) => const ProjectScreen()),
+        _           => null,
+      };
+      if (route != null) Navigator.push(context, route);
+    }
 
     return SafeArea(
       bottom: false,
       child: ListView(
         padding: const EdgeInsets.only(bottom: 100),
         children: [
-          // ── Header card ──
+          // ── Identity card with plan display ──
           _IdentityCard(
             initials: business.initials,
             name: business.name,
             handle: business.handle,
             industry: business.industry,
             tier: business.tier,
+            tierCode: tierCode,
             verified: business.verified,
-            sustainabilityScore: business.sustainabilityScore,
-            onAvatarTap: onOpenDrawer,
+            onAvatarTap: widget.onOpenDrawer,
             onSettingsTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const SettingsScreen()),
             ),
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
-          // ── Featured: Online Shop ──
-          _ShopFeatureCard(
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ShopScreen()),
-            ),
-            onManageProducts: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const InventoryScreen()),
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // ── Tools grid ──
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: SectionHeader('All tools'),
-          ),
-          const SizedBox(height: 12),
-          _ToolGrid(onAction: (id) {
-            if (id == 'booking' || id == 'projects') {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    '${id[0].toUpperCase()}${id.substring(1)} — coming soon to mobile. Available in the web app.',
-                    style: AppType.body(size: 13, color: Colors.white)),
-                  backgroundColor: context.colors.navyDeep,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                  duration: const Duration(seconds: 3),
-                ),
-              );
-              return;
-            }
-            final route = switch (id) {
-              'invoicing' => MaterialPageRoute(builder: (_) => const InvoicesScreen()),
-              'inventory' => MaterialPageRoute(builder: (_) => const InventoryScreen()),
-              'staff'     => MaterialPageRoute(builder: (_) => const StaffScreen()),
-              'shop'      => MaterialPageRoute(builder: (_) => const ShopScreen()),
-              'recurring' => MaterialPageRoute(builder: (_) => const RecurringInvoicesScreen()),
-              'receipts'  => MaterialPageRoute(builder: (_) => const ReceiptsScreen()),
-              'expenses'  => MaterialPageRoute(builder: (_) => const ExpensesScreen()),
-              'booking'   => MaterialPageRoute(builder: (_) => const BookingScreen()),
-              _           => null,
-            };
-            if (route != null) Navigator.push(context, route);
-          }),
-
-          const SizedBox(height: 28),
-
-          // ── Divider ──
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Container(height: 1, color: c.border),
-          ),
-          const SizedBox(height: 12),
-
-          // ── Footer links ──
-          _FooterLink(
-            icon: Icons.workspace_premium_outlined,
-            label: 'Subscription',
-            trailing: business.tier,
-            onTap: () => Navigator.push(
+          // ── Plan availability banner ──
+          _PlanBanner(
+            totalTools: totalTools,
+            availableTools: availableTools,
+            tier: business.tier,
+            tierCode: tierCode,
+            onUpgrade: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
-            ),
-          ),
-          _FooterLink(
-            icon: Icons.shield_outlined,
-            label: 'Verification & funding',
-            trailing: business.verified ? 'Verified' : 'Get verified',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const VerifyScreen()),
-            ),
-          ),
-          _FooterLink(
-            icon: Icons.help_outline,
-            label: 'Help & support',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const HelpScreen()),
             ),
           ),
 
           const SizedBox(height: 20),
 
-          // ── Sign out ──
+          // ── Search bar ──
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: GestureDetector(
-              onTap: () => _confirmSignOut(context),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  color: c.rose.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: c.rose.withValues(alpha: 0.2)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+            child: _SearchBar(controller: _searchCtrl),
+          ),
+
+          const SizedBox(height: 20),
+
+          // ── Tools grid ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: SectionHeader(
+              _searchQuery.isEmpty
+                  ? 'All tools ($totalTools)'
+                  : '${filteredTools.length} tool${filteredTools.length == 1 ? '' : 's'} found',
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (filteredTools.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 40),
+              child: Center(
+                child: Column(
                   children: [
-                    Icon(Icons.logout, size: 18, color: c.rose),
-                    const SizedBox(width: 10),
-                    Text('Sign out',
-                        style: AppType.body(
-                            size: 14,
-                            weight: FontWeight.w600,
-                            color: c.rose)),
+                    Icon(Icons.search_off, size: 36, color: c.textFaint),
+                    const SizedBox(height: 8),
+                    Text('No tools match "$_searchQuery"',
+                        style: AppType.body(size: 13, color: c.textMuted)),
                   ],
                 ),
               ),
+            )
+          else
+            _ToolGrid(
+              tools: filteredTools,
+              tierCode: tierCode,
+              onAction: navigateTool,
+            ),
+
+          const SizedBox(height: 28),
+
+          // ── Want different tools? ──
+          _ExploreToolsCard(
+            onUpgrade: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const SubscriptionScreen()),
             ),
           ),
 
@@ -181,48 +202,73 @@ class ToolsScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _confirmSignOut(BuildContext context) async {
+  void _showLockedSnackBar(BuildContext context, String msg) {
     final c = context.colors;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: c.bgElevated,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text('Sign out?',
-            style: AppType.heading(size: 17, color: c.text)),
-        content: Text(
-          'You will need to sign in again to access your business.',
-          style: AppType.body(size: 13, color: c.textMuted),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Cancel',
-                style: AppType.body(
-                    size: 13, weight: FontWeight.w600, color: c.textMuted)),
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, style: AppType.body(size: 13, color: Colors.white)),
+        backgroundColor: c.navyDeep,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+}
+
+// ── Search Bar ────────────────────────────────────────────────────────────
+
+class _SearchBar extends StatelessWidget {
+  final TextEditingController controller;
+  const _SearchBar({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      height: 44,
+      decoration: BoxDecoration(
+        color: c.bgInset,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: c.border),
+      ),
+      child: Row(
+        children: [
+          const SizedBox(width: 12),
+          Icon(Icons.search, size: 18, color: c.textFaint),
+          const SizedBox(width: 8),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              style: AppType.body(size: 14, color: c.text),
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+                hintText: 'Search tools…',
+                hintStyle: AppType.body(size: 14, color: c.textFaint),
+              ),
+            ),
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('Sign out',
-                style: AppType.body(
-                    size: 13, weight: FontWeight.w600, color: c.rose)),
-          ),
+          if (controller.text.isNotEmpty)
+            GestureDetector(
+              onTap: () => controller.clear(),
+              child: Padding(
+                padding: const EdgeInsets.only(right: 10),
+                child: Icon(Icons.close, size: 16, color: c.textFaint),
+              ),
+            ),
         ],
       ),
     );
-    if (confirmed != true) return;
-    if (!context.mounted) return;
-    Navigator.of(context).popUntil((route) => route.isFirst);
-    context.read<AppState>().signOut();
   }
 }
 
 // ── Identity card ──────────────────────────────────────────────────────────
 
 class _IdentityCard extends StatelessWidget {
-  final String initials, name, handle, industry, tier;
+  final String initials, name, handle, industry, tier, tierCode;
   final bool verified;
-  final int sustainabilityScore;
   final VoidCallback? onAvatarTap, onSettingsTap;
 
   const _IdentityCard({
@@ -231,8 +277,8 @@ class _IdentityCard extends StatelessWidget {
     required this.handle,
     required this.industry,
     required this.tier,
+    required this.tierCode,
     required this.verified,
-    required this.sustainabilityScore,
     this.onAvatarTap,
     this.onSettingsTap,
   });
@@ -259,27 +305,23 @@ class _IdentityCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(name,
-                          style: AppType.heading(
-                              size: 18, color: c.text)),
-                      const SizedBox(height: 2),
+                          style: AppType.heading(size: 17, color: c.text)),
+                      const SizedBox(height: 1),
                       Text(handle,
-                          style: AppType.body(
-                              size: 12.5, color: c.textMuted)),
+                          style: AppType.body(size: 12, color: c.textMuted)),
                     ],
                   ),
                 ),
                 GestureDetector(
                   onTap: onSettingsTap,
                   child: Container(
-                    width: 36,
-                    height: 36,
+                    width: 36, height: 36,
                     decoration: BoxDecoration(
                       color: c.bgInset,
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: c.border),
                     ),
-                    child: Icon(Icons.settings_outlined,
-                        size: 18, color: c.textMuted),
+                    child: Icon(Icons.settings_outlined, size: 18, color: c.textMuted),
                   ),
                 ),
               ],
@@ -289,34 +331,191 @@ class _IdentityCard extends StatelessWidget {
             const SizedBox(height: 14),
             Row(
               children: [
-                // Sustainability score
-                Row(
-                  children: [
-                    Icon(Icons.eco, size: 16, color: c.green),
-                    const SizedBox(width: 4),
-                    Text('$sustainabilityScore',
-                        style: AppType.body(
-                            size: 12,
-                            weight: FontWeight.w600,
-                            color: c.text)),
-                  ],
+                // Plan pill — prominently shows the current plan
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: _planColor(tierCode, c).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _planColor(tierCode, c).withValues(alpha: 0.3)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.workspace_premium_outlined, size: 14, color: _planColor(tierCode, c)),
+                      const SizedBox(width: 5),
+                      Text(tier,
+                          style: AppType.body(size: 11.5, weight: FontWeight.w700, color: _planColor(tierCode, c))),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 10),
+                if (verified)
+                  AppPill('Verified', tone: PillTone.green, icon: 'check_circle', small: true),
+                const Spacer(),
                 Row(
                   children: [
                     Icon(Icons.business, size: 14, color: c.textFaint),
                     const SizedBox(width: 4),
                     Text(industry,
-                        style: AppType.body(
-                            size: 12, color: c.textMuted)),
+                        style: AppType.body(size: 12, color: c.textMuted)),
                   ],
                 ),
-                const Spacer(),
-                if (verified)
-                  AppPill('Verified',
-                      tone: PillTone.navy,
-                      icon: 'check_circle',
-                      small: true),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _planColor(String code, AppColorsX c) {
+    switch (code) {
+      case 'free': return c.teal;
+      case 'lite': return c.blue;
+      case 'plus': return c.amber;
+      case 'elite': return c.green;
+      default: return c.textMuted;
+    }
+  }
+}
+
+// ── Plan availability banner ───────────────────────────────────────────────
+
+class _PlanBanner extends StatelessWidget {
+  final int totalTools, availableTools;
+  final String tier, tierCode;
+  final VoidCallback onUpgrade;
+
+  const _PlanBanner({
+    required this.totalTools,
+    required this.availableTools,
+    required this.tier,
+    required this.tierCode,
+    required this.onUpgrade,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final allAvailable = availableTools == totalTools;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [c.navySurface, c.navySurfaceStrong],
+            ),
+            border: Border.all(color: c.navySurfaceStrong),
+          ),
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Container(
+                width: 40, height: 40,
+                decoration: BoxDecoration(
+                  color: c.navyDeep,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(Icons.workspace_premium_outlined, size: 20, color: Colors.white),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$availableTools of $totalTools tools',
+                      style: AppType.body(size: 14, weight: FontWeight.w700, color: c.navyDeep),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      allAvailable
+                          ? 'All tools unlocked on your $tier plan'
+                          : '$availableTools available on your $tier plan',
+                      style: AppType.body(size: 12, color: c.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+              if (!allAvailable) ...[
+                GestureDetector(
+                  onTap: onUpgrade,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: c.navyDeep,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('Upgrade',
+                        style: AppType.body(size: 12, weight: FontWeight.w600, color: Colors.white)),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Explore tools card ─────────────────────────────────────────────────────
+
+class _ExploreToolsCard extends StatelessWidget {
+  final VoidCallback onUpgrade;
+
+  const _ExploreToolsCard({required this.onUpgrade});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: AppCard(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.lightbulb_outline, size: 20, color: c.amber),
+                const SizedBox(width: 10),
+                Text('Want different tools?',
+                    style: AppType.body(size: 15, weight: FontWeight.w600, color: c.text)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              "We're building new tools every month. If there's a specific feature your business needs — or you'd like access to tools on a higher plan — let us know and we'll help find the right fit.",
+              style: AppType.body(size: 13, color: c.textMuted),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                AppBtn('View plans',
+                    variant: BtnVariant.primary,
+                    fontSize: 12.5,
+                    icon: 'crown',
+                    onTap: onUpgrade),
+                const SizedBox(width: 10),
+                AppBtn('Suggest a tool',
+                    variant: BtnVariant.secondary,
+                    fontSize: 12.5,
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Tool suggestions — coming soon.',
+                              style: AppType.body(size: 13, color: Colors.white)),
+                          backgroundColor: c.navyDeep,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      );
+                    }),
               ],
             ),
           ],
@@ -326,183 +525,18 @@ class _IdentityCard extends StatelessWidget {
   }
 }
 
-// ── Shop feature card ──────────────────────────────────────────────────────
-
-class _ShopFeatureCard extends StatelessWidget {
-  final VoidCallback onTap;
-  final VoidCallback onManageProducts;
-
-  const _ShopFeatureCard({required this.onTap, required this.onManageProducts});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10, left: 2),
-            child: Row(
-              children: [
-                Icon(Icons.star, size: 14, color: c.amber),
-                const SizedBox(width: 6),
-                Text('FEATURED',
-                    style: AppType.label(
-                        size: 11,
-                        color: c.textMuted,
-                        letterSpacing: 1.2)),
-              ],
-            ),
-          ),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [c.navyDeep, c.navy, c.navyTint],
-                ),
-                boxShadow: AppShadows.navy,
-              ),
-              padding: const EdgeInsets.all(22),
-              child: Stack(
-                children: [
-                  // Decorative green radial
-                  Positioned(
-                    top: -40,
-                    right: -40,
-                    child: IgnorePointer(
-                      child: Container(
-                        width: 160,
-                        height: 160,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: RadialGradient(
-                            colors: [
-                              c.green.withValues(alpha: 0.18),
-                              Colors.transparent,
-                            ],
-                            stops: const [0.0, 0.7],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Icon(Icons.storefront_outlined,
-                                size: 22, color: c.green),
-                          ),
-                          const SizedBox(width: 12),
-                          Text('Online Shop',
-                              style: AppType.heading(
-                                  size: 18, color: Colors.white)),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Reach customers beyond your location. Set up your storefront, list products, and accept payments online — all from within AscendSME.',
-                        style: AppType.body(
-                            size: 13,
-                            color: Colors.white.withValues(alpha: 0.75)),
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          GestureDetector(
-                            onTap: onTap,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 18, vertical: 11),
-                              decoration: BoxDecoration(
-                                color: c.green,
-                                borderRadius: BorderRadius.circular(12),
-                                boxShadow: AppShadows.green,
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.arrow_forward,
-                                      size: 15, color: Colors.white),
-                                  const SizedBox(width: 6),
-                                  Text('Set up storefront',
-                                      style: AppType.body(
-                                          size: 13,
-                                          weight: FontWeight.w600,
-                                          color: Colors.white)),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          GestureDetector(
-                            onTap: onManageProducts,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 11),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.14)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text('Manage products',
-                                      style: AppType.body(
-                                          size: 12.5,
-                                          weight: FontWeight.w500,
-                                          color: Colors.white)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 // ── Tool grid ──────────────────────────────────────────────────────────────
 
 class _ToolGrid extends StatelessWidget {
+  final List<_ToolEntry> tools;
+  final String tierCode;
   final void Function(String) onAction;
 
-  const _ToolGrid({required this.onAction});
-
-  static const _tools = [
-    _ToolEntry('invoicing', 'Invoicing', Icons.description_outlined, 'Send invoices & receipts', 'free'),
-    _ToolEntry('inventory', 'Inventory', Icons.inventory_2_outlined, 'Stock & alerts', 'lite'),
-    _ToolEntry('staff', 'Staff', Icons.people_outline, 'Manage your team', 'plus'),
-    _ToolEntry('booking', 'Bookings', Icons.calendar_today_outlined, 'Client appointments', 'free'),
-    _ToolEntry('projects', 'Projects', Icons.view_kanban_outlined, 'Kanban & milestones', 'plus'),
-    _ToolEntry('shop', 'Online Shop', Icons.storefront_outlined, 'Listings & orders', 'lite'),
-    _ToolEntry('recurring', 'Recurring', Icons.repeat, 'Retainers & standing orders', 'lite'),
-    _ToolEntry('receipts', 'Receipts', Icons.receipt_long_outlined, 'All payments received', 'free'),
-    _ToolEntry('expenses', 'Expenses', Icons.receipt_long, 'Track outflows', 'free'),
-  ];
+  const _ToolGrid({
+    required this.tools,
+    required this.tierCode,
+    required this.onAction,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -515,14 +549,23 @@ class _ToolGrid extends StatelessWidget {
         mainAxisSpacing: 10,
         crossAxisSpacing: 10,
         childAspectRatio: 1.45,
-        children: _tools
+        children: tools
             .map((t) => _ToolTile(
                   entry: t,
+                  available: _toolAvailable(t.tier, tierCode),
                   onTap: () => onAction(t.id),
                 ))
             .toList(),
       ),
     );
+  }
+
+  bool _toolAvailable(String toolTier, String businessTierCode) {
+    const tierOrder = ['free', 'lite', 'plus', 'elite'];
+    final toolIdx = tierOrder.indexOf(toolTier);
+    final bizIdx = tierOrder.indexOf(businessTierCode);
+    if (toolIdx == -1 || bizIdx == -1) return toolTier == 'free';
+    return toolIdx <= bizIdx;
   }
 }
 
@@ -534,86 +577,67 @@ class _ToolEntry {
 
 class _ToolTile extends StatelessWidget {
   final _ToolEntry entry;
+  final bool available;
   final VoidCallback onTap;
 
-  const _ToolTile({required this.entry, required this.onTap});
+  const _ToolTile({required this.entry, required this.available, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final iconColor = available ? c.tealDeep : c.textFaint;
+    final iconBg = available ? c.tealSurface : c.bgInset;
+
     return AppCard(
-      onTap: onTap,
+      onTap: available ? onTap : null,
       padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
         children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: c.tealSurface,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(entry.icon, size: 18, color: c.tealDeep),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 34, height: 34,
+                    decoration: BoxDecoration(color: iconBg, borderRadius: BorderRadius.circular(10)),
+                    child: Icon(entry.icon, size: 18, color: iconColor),
+                  ),
+                  const Spacer(),
+                  if (!available)
+                    Icon(Icons.lock_outline, size: 14, color: c.textFaint),
+                ],
+              ),
+              const Spacer(),
+              Text(entry.name,
+                  style: AppType.body(size: 13, weight: FontWeight.w600,
+                      color: available ? c.text : c.textMuted),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 2),
+              if (available)
+                Text(entry.description,
+                    style: AppType.body(size: 11, color: c.textMuted),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis)
+              else
+                Text('${_tierLabel(entry.tier)} plan',
+                    style: AppType.body(size: 11, weight: FontWeight.w600, color: c.textFaint),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+            ],
           ),
-          const Spacer(),
-          Text(entry.name,
-              style: AppType.body(
-                  size: 13, weight: FontWeight.w600, color: c.text),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 2),
-          Text(entry.description,
-              style: AppType.body(size: 11, color: c.textMuted),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis),
         ],
       ),
     );
   }
-}
 
-// ── Footer link ────────────────────────────────────────────────────────────
-
-class _FooterLink extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String? trailing;
-  final VoidCallback onTap;
-
-  const _FooterLink({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.trailing,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-      child: AppCard(
-        onTap: onTap,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: c.textMuted),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Text(label,
-                  style: AppType.body(
-                      size: 14, weight: FontWeight.w500, color: c.text)),
-            ),
-            if (trailing != null) ...[
-              Text(trailing!,
-                  style: AppType.body(size: 12.5, color: c.textMuted)),
-              const SizedBox(width: 6),
-            ],
-            Icon(Icons.chevron_right, size: 18, color: c.textFaint),
-          ],
-        ),
-      ),
-    );
+  String _tierLabel(String tier) {
+    switch (tier) {
+      case 'lite': return 'Lite';
+      case 'plus': return 'Plus';
+      case 'elite': return 'Elite';
+      default: return 'Free';
+    }
   }
 }

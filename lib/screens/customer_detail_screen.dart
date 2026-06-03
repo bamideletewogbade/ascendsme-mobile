@@ -4,6 +4,7 @@ import '../core/models.dart';
 import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 import '../services/crm_service.dart';
+import '../services/supabase_service.dart';
 import '../state/app_state.dart';
 import 'tools/invoice_detail_screen.dart';
 
@@ -155,6 +156,99 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     _loadCrmData();
   }
 
+  Future<void> _showEditCustomer(BuildContext context) async {
+    final nameCtrl = TextEditingController(text: widget.customer.fullName);
+    final phoneCtrl = TextEditingController(text: widget.customer.phone ?? '');
+    final emailCtrl = TextEditingController(text: widget.customer.email ?? '');
+    final c = this.context.colors;
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: c.bgElevated,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Edit customer',
+            style: AppType.heading(size: 17, color: c.text)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtrl,
+              decoration: InputDecoration(
+                labelText: 'Name',
+                labelStyle: AppType.body(size: 12, color: c.textMuted),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              style: AppType.body(size: 14, color: c.text),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: phoneCtrl,
+              decoration: InputDecoration(
+                labelText: 'Phone',
+                labelStyle: AppType.body(size: 12, color: c.textMuted),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              style: AppType.body(size: 14, color: c.text),
+              keyboardType: TextInputType.phone,
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: emailCtrl,
+              decoration: InputDecoration(
+                labelText: 'Email',
+                labelStyle: AppType.body(size: 12, color: c.textMuted),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              style: AppType.body(size: 14, color: c.text),
+              keyboardType: TextInputType.emailAddress,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel',
+                style: AppType.body(size: 13, weight: FontWeight.w600, color: c.textMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Save',
+                style: AppType.body(size: 13, weight: FontWeight.w600, color: c.teal)),
+          ),
+        ],
+      ),
+    );
+
+    if (saved != true || nameCtrl.text.trim().isEmpty) return;
+    final bizId = context.read<AppState>().business.id;
+    if (bizId == null) return;
+
+    try {
+      await SupabaseService.client
+          .from('customers')
+          .update({
+            'full_name': nameCtrl.text.trim(),
+            if (phoneCtrl.text.trim().isNotEmpty) 'phone': phoneCtrl.text.trim(),
+            if (emailCtrl.text.trim().isNotEmpty) 'email': emailCtrl.text.trim(),
+          })
+          .eq('id', widget.customer.id);
+      if (!mounted) return;
+      context.read<AppState>().loadCustomers();
+      _loadCrmData();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Could not update customer.'),
+          backgroundColor: c.rose,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -212,6 +306,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       AppAvatar(_customerInitials, size: 54),
                       const SizedBox(width: 14),
@@ -219,8 +314,26 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(widget.customer.fullName,
-                                style: AppType.heading(size: 18, color: c.text)),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(widget.customer.fullName,
+                                      style: AppType.heading(size: 18, color: c.text)),
+                                ),
+                                GestureDetector(
+                                  onTap: () => _showEditCustomer(context),
+                                  child: Container(
+                                    width: 30, height: 30,
+                                    decoration: BoxDecoration(
+                                      color: c.bgInset,
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: c.border),
+                                    ),
+                                    child: Icon(Icons.edit_outlined, size: 14, color: c.textMuted),
+                                  ),
+                                ),
+                              ],
+                            ),
                             if (widget.customer.phone != null || widget.customer.email != null) ...[
                               const SizedBox(height: 4),
                               if (widget.customer.phone != null)

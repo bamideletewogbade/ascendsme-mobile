@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../core/widgets/customer_selector.dart';
+import '../../services/crm_service.dart';
 import '../../services/supabase_service.dart';
 import '../../state/app_state.dart';
 
@@ -126,6 +128,14 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
       );
 
       if (!mounted) return;
+
+      // Sync CRM metrics in background
+      unawaited(CrmService.syncAfterPurchase(
+        businessId: businessId,
+        customerName: _customerName,
+        customerPhone: null,
+        amountGhs: amount.toDouble(),
+      ));
 
       // ignore: unawaited_futures
       appState.loadFinancials();

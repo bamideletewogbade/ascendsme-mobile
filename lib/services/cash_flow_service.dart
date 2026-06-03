@@ -130,7 +130,6 @@ class CashFlowService {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final thirtyDays = DateTime(now.year, now.month, now.day + 30);
-      final thirtyDaysAgo = DateTime(now.year, now.month, now.day - 30);
 
       // 1. Current Cash — from receipts (money received) minus expenses logged
       final recentReceipts = await SupabaseService.sumReceipts(
@@ -148,6 +147,7 @@ class CashFlowService {
       // 2. Accounts Receivable — pending invoices due within 30 days
       final openInvoices = await SupabaseService.fetchOpenInvoices(businessId: businessId);
       double accountsReceivableDue = 0;
+      double pipelineValue = 0;
       final overdueInvoices = <OverdueInvoice>[];
       for (final inv in openInvoices) {
         final amount = (inv['total_amount'] as num?)?.toDouble() ?? 0;
@@ -163,7 +163,9 @@ class CashFlowService {
             overdueInvoices.add(OverdueInvoice(
               id: inv['id'] as String? ?? '',
               invoiceNumber: inv['invoice_number'] as String? ?? '',
-              clientName: inv['client_name'] as String? ?? 'Customer',
+              clientName: (inv['client_name'] as String?)?.trim().isNotEmpty == true
+                  ? (inv['client_name'] as String).trim()
+                  : 'Customer',
               amount: amount,
               daysPastDue: today.difference(due).inDays,
             ));
@@ -172,7 +174,7 @@ class CashFlowService {
 
         // Pipeline: proforma quotes
         if (status == 'proforma') {
-          // Pipeline is tracked separately
+          pipelineValue += amount;
         }
       }
 
@@ -197,7 +199,6 @@ class CashFlowService {
       const predictedSales = 0.0; // Not implemented in mobile v1
       const plannedRestockCost = 0.0;
       const accountsPayableDue = 0.0;
-      const pipelineValue = 0.0;
 
       final projectedInflows = accountsReceivableDue + predictedSales;
       final projectedOutflows = accountsPayableDue + plannedRestockCost + fixedOperatingCosts;
@@ -245,8 +246,7 @@ class CashFlowService {
         liquidityGap: liquidityGap,
         isAtRisk: isAtRisk,
         dailyForecast: dailyForecast,
-        overdueInvoices: overdueInvoices,
-        upcomingExpenses: upcomingExpenses,
+        overdueInvoices: overdueInvoices,          upcomingExpenses: upcomingExpenses,
         overallConfidence: overallConfidence,
         dataQuality: dataQuality,
       );

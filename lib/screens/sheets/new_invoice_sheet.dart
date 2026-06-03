@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/models.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../core/widgets/customer_selector.dart';
+import '../../core/widgets/inventory_selector.dart';
 import '../../services/ai_service.dart';
+import '../../services/app_logger.dart';
+import '../../services/crm_service.dart';
 import '../../services/supabase_service.dart';
 import '../../state/app_state.dart';
 
@@ -40,11 +44,6 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
   // ── Line items from inventory ──
   final List<_SelectedItem> _selectedItems = [];
 
-  // ── Inventory search for line items ──
-  final _productSearchCtrl = TextEditingController();
-  List<InventoryItem> _productResults = [];
-  bool _searchingProducts = false;
-
   // ── AI ──
   bool _aiParsing = false;
 
@@ -74,7 +73,6 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
   void dispose() {
     _descCtrl.dispose();
     _amountCtrl.dispose();
-    _productSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -101,30 +99,18 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
     }
   }
 
-  // ── Inventory product search ──
-  Future<void> _searchProducts(String query) async {
-    final state = context.read<AppState>();
-    final inventory = state.inventory;
-    if (query.trim().isEmpty) {
-      setState(() => _productResults = []);
-      return;
-    }
-    final q = query.toLowerCase();
+  void _onProductSelected(InventoryItem product) {
+    // Check if already added — increment quantity instead of duplicating
     setState(() {
-      _searchingProducts = true;
-      _productResults = inventory.where((p) {
-        return p.name.toLowerCase().contains(q) ||
-            (p.sku?.toLowerCase().contains(q) ?? false);
-      }).take(8).toList();
-    });
-    setState(() => _searchingProducts = false);
-  }
-
-  void _addProductItem(InventoryItem product) {
-    setState(() {
-      _selectedItems.add(_SelectedItem(product: product, quantity: 1));
-      _productSearchCtrl.clear();
-      _productResults = [];
+      final existing = _selectedItems.indexWhere((it) => it.product.id == product.id);
+      if (existing >= 0) {
+        _selectedItems[existing] = _SelectedItem(
+          product: product,
+          quantity: _selectedItems[existing].quantity + 1,
+        );
+      } else {
+        _selectedItems.add(_SelectedItem(product: product, quantity: 1));
+      }
     });
   }
 
@@ -210,10 +196,41 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
 
       if (!mounted) return;
 
+      // Sync CRM metrics in background
+      unawaited(CrmService.syncAfterPurchase(
+        businessId: businessId,
+        customerName: customer,
+        customerEmail: null,
+        amountGhs: amount.toDouble(),
+      ));
+
+      // Create inventory reservations for each selected item
+      if (_selectedItems.isNotEmpty) {
+        final invoiceId = row['id'] as String?;
+        if (invoiceId != null) {
+          for (final it in _selectedItems) {
+            try {
+              await SupabaseService.createProductReservation(
+                businessId: businessId,
+                productId: it.product.id,
+                quantity: it.quantity,
+                reservationType: 'invoice',
+                referenceId: invoiceId,
+              );
+            } catch (e) {
+              log.warning('createProductReservation failed for ${it.product.id}: $e');
+              // Non-fatal — don't block invoice creation on reservation failure
+            }
+          }
+        }
+      }
+
       // ignore: unawaited_futures
       appState.loadFinancials();
       // ignore: unawaited_futures
       appState.loadInvoices();
+      // ignore: unawaited_futures
+      appState.loadInventory();
       widget.onSent?.call();
 
       setState(() {
@@ -257,15 +274,11 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
             descCtrl: _descCtrl,
             amountCtrl: _amountCtrl,
             selectedItems: _selectedItems,
-            productSearchCtrl: _productSearchCtrl,
-            productResults: _productResults,
-            searchingProducts: _searchingProducts,
             aiParsing: _aiParsing,
             totalAmount: _totalAmount,
             onCustomerChanged: _onCustomerChanged,
             onAiDraft: _aiDraft,
-            onSearchProducts: _searchProducts,
-            onAddProduct: _addProductItem,
+            onProductSelected: _onProductSelected,
             onUpdateQuantity: _updateItemQuantity,
             onNext: () => setState(() => _step = 1),
             isProforma: _isProforma,
@@ -311,15 +324,13 @@ class _DetailsStep extends StatelessWidget {
   final String? customerId;
   final String? businessId;
   final Customer? selectedCustomer;
-  final TextEditingController descCtrl, amountCtrl, productSearchCtrl;
+  final TextEditingController descCtrl, amountCtrl;
   final List<_SelectedItem> selectedItems;
-  final List<InventoryItem> productResults;
-  final bool searchingProducts, aiParsing;
+  final bool aiParsing;
   final num totalAmount;
   final void Function(String, Customer?) onCustomerChanged;
   final VoidCallback onAiDraft;
-  final void Function(String) onSearchProducts;
-  final void Function(InventoryItem) onAddProduct;
+  final void Function(InventoryItem) onProductSelected;
   final void Function(int, int) onUpdateQuantity;
   final VoidCallback onNext;
   final bool isProforma;
@@ -333,15 +344,11 @@ class _DetailsStep extends StatelessWidget {
     required this.descCtrl,
     required this.amountCtrl,
     required this.selectedItems,
-    required this.productSearchCtrl,
-    required this.productResults,
-    required this.searchingProducts,
     required this.aiParsing,
     required this.totalAmount,
     required this.onCustomerChanged,
     required this.onAiDraft,
-    required this.onSearchProducts,
-    required this.onAddProduct,
+    required this.onProductSelected,
     required this.onUpdateQuantity,
     required this.onNext,
     required this.isProforma,
@@ -430,112 +437,16 @@ class _DetailsStep extends StatelessWidget {
             const SizedBox(height: 10),
           ],
 
-          // Add product from inventory
+          // Add product from inventory — use InventorySelector like CustomerSelector
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Container(
-              decoration: BoxDecoration(
-                color: c.bgInset,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: c.border),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              height: 48,
-              child: Row(
-                children: [
-                  Icon(Icons.search, size: 18, color: c.textFaint),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: productSearchCtrl,
-                      onChanged: (v) {
-                        onSearchProducts(v);
-                      },
-                      style: AppType.body(size: 13.5, color: c.text),
-                      decoration: InputDecoration(
-                        hintText: 'Add from inventory…',
-                        hintStyle:
-                            AppType.body(size: 13, color: c.textFaint),
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding:
-                            const EdgeInsets.symmetric(vertical: 12),
-                      ),
-                    ),
-                  ),
-                  if (searchingProducts)
-                    SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation(c.teal)),
-                    ),
-                ],
-              ),
+            child: InventorySelector(
+              inventory: context.read<AppState>().inventory,
+              label: 'Add products',
+              multiSelect: true,
+              onChanged: onProductSelected,
             ),
           ),
-
-          // Product search dropdown
-          if (productResults.isNotEmpty)
-            Container(
-              margin: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-              decoration: BoxDecoration(
-                color: c.bgElevated,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: c.border),
-                boxShadow: AppShadows.card,
-              ),
-              constraints: const BoxConstraints(maxHeight: 240),
-              child: ListView(
-                shrinkWrap: true,
-                padding: EdgeInsets.zero,
-                children: productResults.map((product) {
-                  final alreadyAdded = selectedItems
-                      .any((it) => it.product.id == product.id);
-                  return InkWell(
-                    onTap: alreadyAdded ? null : () => onAddProduct(product),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 11),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(product.name,
-                                    style: AppType.body(
-                                        size: 13,
-                                        weight: FontWeight.w600,
-                                        color: c.text),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis),
-                                if (product.unitPrice != null)
-                                  Text(formatGHS(product.unitPrice!),
-                                      style: AppType.body(
-                                          size: 11.5, color: c.textMuted)),
-                              ],
-                            ),
-                          ),
-                          Text('Stock: ${product.currentStock}',
-                              style: AppType.body(
-                                  size: 11.5,
-                                  color: c.textFaint)),
-                          const SizedBox(width: 8),
-                          if (alreadyAdded)
-                            Icon(Icons.check_circle,
-                                size: 18, color: c.green)
-                          else
-                            Icon(Icons.add_circle_outline,
-                                size: 18, color: c.navy),
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
 
           // Manual amount fallback (shown only when no items selected)
           if (selectedItems.isEmpty) ...[

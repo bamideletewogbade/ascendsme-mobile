@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/models.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../services/inventory_service.dart';
+import '../../services/supabase_service.dart';
 import '../../state/app_state.dart';
 import '../sheets/add_product_sheet.dart';
+import '../sheets/bulk_import_sheet.dart';
 
 /// Inventory management screen — list products, view stock levels, add/edit
 /// items, see low-stock alerts, and perform management actions (restock,
@@ -74,36 +77,57 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   ? const _LoadingState()
                   : allItems.isEmpty
                       ? _EmptyState(onAdd: () => _openAddProduct(context))
-                      : _ListBody(
-                          items: filtered,
-                          allItems: allItems,
-                          lowStock: lowStock,
-                          categories: categories,
-                          searchQuery: _searchQuery,
-                          categoryFilter: _categoryFilter,
-                          onSearchChanged: (v) =>
-                              setState(() => _searchQuery = v),
-                          onCategoryChanged: (v) =>
-                              setState(() => _categoryFilter = v),
-                          onAdd: () => _openAddProduct(context),
-                          onItemTap: (item) =>
-                              _showItemActions(context, item),
+                      : RefreshIndicator(
+                          onRefresh: _refresh,
+                          color: c.teal,
+                          child: _ListBody(
+                            items: filtered,
+                            allItems: allItems,
+                            lowStock: lowStock,
+                            categories: categories,
+                            searchQuery: _searchQuery,
+                            categoryFilter: _categoryFilter,
+                            onSearchChanged: (v) =>
+                                setState(() => _searchQuery = v),
+                            onCategoryChanged: (v) =>
+                                setState(() => _categoryFilter = v),
+                            onAdd: () => _openAddProduct(context),
+                            onItemTap: (item) =>
+                                _showItemActions(context, item),
+                          ),
                         ),
             ),
             if (allItems.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                child: AppBtn(
-                  'Add product',
-                  full: true,
-                  icon: 'add',
-                  onTap: () => _openAddProduct(context),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: AppBtn(
+                        'Add product',
+                        full: true,
+                        icon: 'add',
+                        onTap: () => _openAddProduct(context),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    AppBtn(
+                      'Bulk import',
+                      icon: 'folder',
+                      variant: BtnVariant.outline,
+                      onTap: () => _openBulkImport(context),
+                    ),
+                  ],
                 ),
               ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _refresh() async {
+    await context.read<AppState>().loadInventory();
   }
 
   void _openAddProduct(BuildContext context) {
@@ -115,10 +139,20 @@ class _InventoryScreenState extends State<InventoryScreen> {
     );
   }
 
+  void _openBulkImport(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const BulkImportSheet(),
+    );
+  }
+
   void _showItemActions(BuildContext context, InventoryItem item) {
-    final c = context.colors;
-    final _restockCtrl = TextEditingController();
-    final _adjustCtrl = TextEditingController(text: '${item.currentStock}');
+    final restockCtrl = TextEditingController();
+    final restockCostCtrl = TextEditingController();
+    String restockPaymentSource = 'cash';
+    final adjustCtrl = TextEditingController(text: '${item.currentStock}');
 
     showModalBottomSheet(
       context: context,
@@ -131,18 +165,34 @@ class _InventoryScreenState extends State<InventoryScreen> {
             final sc = ctx.colors;
 
             Future<void> restock() async {
-              final raw = _restockCtrl.text.trim();
+              final raw = restockCtrl.text.trim();
               final qty = int.tryParse(raw);
               if (qty == null || qty <= 0) return;
+              final appState = context.read<AppState>();
+              final bizId = appState.business.id;
+              if (bizId == null) return;
               try {
                 await InventoryService.updateProduct(
                   productId: item.id,
-                  businessId: context.read<AppState>().business.id!,
+                  businessId: bizId,
                   currentStock: item.currentStock + qty,
                 );
+                // Log the restock as an expense if a cost was entered
+                final costRaw = restockCostCtrl.text.trim();
+                final cost = costRaw.isNotEmpty ? num.tryParse(costRaw) : null;
+                if (cost != null && cost > 0) {
+                  await SupabaseService.createExpense(
+                    businessId: bizId,
+                    amount: cost,
+                    description: 'Restock: ${item.name} x $qty',
+                    category: 'Inventory',
+                    paymentSource: restockPaymentSource,
+                  );
+                }
                 if (!ctx.mounted) return;
                 Navigator.pop(ctx);
-                context.read<AppState>().loadInventory();
+                unawaited(appState.loadInventory());
+                unawaited(appState.loadFinancials());
               } catch (e) {
                 if (!ctx.mounted) return;
                 ScaffoldMessenger.of(ctx).showSnackBar(
@@ -157,7 +207,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
             }
 
             Future<void> adjustStock() async {
-              final raw = _adjustCtrl.text.trim();
+              final raw = adjustCtrl.text.trim();
               final qty = int.tryParse(raw);
               if (qty == null || qty < 0) return;
               try {
@@ -269,52 +319,123 @@ class _InventoryScreenState extends State<InventoryScreen> {
                       title: 'Restock',
                       subtitle: 'Add more units to inventory',
                       color: sc.teal,
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: SizedBox(
-                              height: 44,
-                              child: TextField(
-                                controller: _restockCtrl,
-                                keyboardType: TextInputType.number,
-                                decoration: InputDecoration(
-                                  hintText: 'Qty to add',
-                                  filled: true,
-                                  fillColor: sc.bg,
-                                  border: OutlineInputBorder(
-                                    borderRadius:
-                                        BorderRadius.circular(10),
-                                    borderSide:
-                                        BorderSide(color: sc.border),
+                          // Qty row
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SizedBox(
+                                  height: 44,
+                                  child: TextField(
+                                    controller: restockCtrl,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      hintText: 'Qty to add',
+                                      filled: true,
+                                      fillColor: sc.bg,
+                                      border: OutlineInputBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(10),
+                                        borderSide:
+                                            BorderSide(color: sc.border),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 12),
+                                      isDense: true,
+                                    ),
                                   ),
-                                  contentPadding:
-                                      const EdgeInsets.symmetric(
-                                          horizontal: 12),
-                                  isDense: true,
                                 ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          GestureDetector(
-                            onTap: restock,
-                            child: Container(
-                              height: 44,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 18),
-                              decoration: BoxDecoration(
-                                color: sc.teal,
-                                borderRadius: BorderRadius.circular(10),
+                              const SizedBox(width: 10),
+                              GestureDetector(
+                                onTap: restock,
+                                child: Container(
+                                  height: 44,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 18),
+                                  decoration: BoxDecoration(
+                                    color: sc.teal,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Center(
+                                    child: Text('Add',
+                                        style: AppType.body(
+                                            size: 13,
+                                            weight: FontWeight.w600,
+                                            color: Colors.white)),
+                                  ),
+                                ),
                               ),
-                              child: Center(
-                                child: Text('Add',
-                                    style: AppType.body(
-                                        size: 13,
-                                        weight: FontWeight.w600,
-                                        color: Colors.white)),
-                              ),
-                            ),
+                            ],
                           ),
+                          const SizedBox(height: 10),
+                          // Cost row (optional)
+                          Row(
+                            children: [
+                              Expanded(
+                                child: SizedBox(
+                                  height: 44,
+                                  child: TextField(
+                                    controller: restockCostCtrl,
+                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    decoration: InputDecoration(
+                                      hintText: 'Total cost (GHS, optional)',
+                                      filled: true,
+                                      fillColor: sc.bg,
+                                      border: OutlineInputBorder(
+                                        borderRadius:
+                                            BorderRadius.circular(10),
+                                        borderSide:
+                                            BorderSide(color: sc.border),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 12),
+                                      isDense: true,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              // Payment source dropdown
+                              Container(
+                                height: 44,
+                                padding: const EdgeInsets.symmetric(horizontal: 10),
+                                decoration: BoxDecoration(
+                                  color: sc.bg,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: sc.border),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: restockPaymentSource,
+                                    isDense: true,
+                                    dropdownColor: sc.bgElevated,
+                                    style: AppType.body(size: 12, color: sc.text),
+                                    items: const [
+                                      DropdownMenuItem(value: 'cash', child: Text('Cash', style: TextStyle(fontSize: 12))),
+                                      DropdownMenuItem(value: 'momo', child: Text('MoMo', style: TextStyle(fontSize: 12))),
+                                      DropdownMenuItem(value: 'bank', child: Text('Bank', style: TextStyle(fontSize: 12))),
+                                    ],
+                                    onChanged: (v) {
+                                      if (v != null) {
+                                        setSheetState(() => restockPaymentSource = v);
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (restockCostCtrl.text.trim().isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: Text('This will be logged as an expense',
+                                  style: AppType.body(size: 10.5, color: sc.textFaint)),
+                            ),
                         ],
                       ),
                     ),
@@ -331,7 +452,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                             child: SizedBox(
                               height: 44,
                               child: TextField(
-                                controller: _adjustCtrl,
+                                controller: adjustCtrl,
                                 keyboardType: TextInputType.number,
                                 decoration: InputDecoration(
                                   hintText: 'New count',
@@ -613,7 +734,7 @@ class _ListBody extends StatelessWidget {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: categories.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 6),
+            separatorBuilder: (_, i) => const SizedBox(width: 6),
             itemBuilder: (context, i) {
               final cat = categories[i];
               final active = cat == categoryFilter;

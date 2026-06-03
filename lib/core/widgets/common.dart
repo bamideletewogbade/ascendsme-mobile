@@ -192,6 +192,7 @@ class AppIcon extends StatelessWidget {
     'balance': Icons.balance_outlined,
     'star': Icons.star_outline,
     'download': Icons.download_outlined,
+    'upload': Icons.upload_file,
     'share': Icons.share_outlined,
     'payments': Icons.payments_outlined,
     'mail': Icons.email_outlined,
@@ -877,34 +878,32 @@ class _GoogleGlyph extends StatelessWidget {
 class BottomNav extends StatelessWidget {
   final AppTab current;
   final ValueChanged<AppTab> onTab;
-  final VoidCallback onCreate;
   final NavVariant variant;
 
   const BottomNav({
     super.key,
     required this.current,
     required this.onTab,
-    required this.onCreate,
     this.variant = NavVariant.classic,
   });
 
   static const _tabs = [
-    (AppTab.home,      'Home',      Icons.home_outlined,                  Icons.home),
-    (AppTab.finance,   'Finance',   Icons.account_balance_wallet_outlined, Icons.account_balance_wallet),
-    (AppTab.customers, 'Customers', Icons.people_alt_outlined,             Icons.people_alt),
-    (AppTab.profile, 'Profile', Icons.person_outline,                    Icons.person),
+    (AppTab.home,     'Home',     Icons.home_outlined,                    Icons.home),
+    (AppTab.finance,  'Finance',  Icons.account_balance_wallet_outlined,  Icons.account_balance_wallet),
+    (AppTab.tools,    'Tools',    Icons.build_outlined,                   Icons.build),
+    (AppTab.profile,  'Profile',  Icons.person_outline,                   Icons.person),
   ];
 
   @override
   Widget build(BuildContext context) {
     return switch (variant) {
       NavVariant.pill    => _pillNav(context),
-      NavVariant.fab     => _classicNav(context, fab: true),
-      NavVariant.classic => _classicNav(context, fab: false),
+      NavVariant.fab     => _classicNav(context),
+      NavVariant.classic => _classicNav(context),
     };
   }
 
-  Widget _classicNav(BuildContext context, {required bool fab}) {
+  Widget _classicNav(BuildContext context) {
     final c = context.colors;
     return Container(
       decoration: BoxDecoration(
@@ -919,16 +918,10 @@ class BottomNav extends StatelessWidget {
         top: false,
         child: SizedBox(
           height: 72,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            child: Row(
-              children: [
-                for (int i = 0; i < _tabs.length; i++) ...[
-                  if (fab && i == 2) _fabButton(context, c),
-                  _tabButton(context, _tabs[i], c),
-                ],
-              ],
-            ),
+          child: Row(
+            children: [
+              for (final tab in _tabs) Expanded(child: _tabButton(context, tab, c)),
+            ],
           ),
         ),
       ),
@@ -938,77 +931,35 @@ class BottomNav extends StatelessWidget {
   Widget _tabButton(
       BuildContext ctx, (AppTab, String, IconData, IconData) t, AppColorsX c) {
     final active = current == t.$1;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => onTab(t.$1),
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: AppAnimation.normal,
-          curve: Curves.easeOut,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AnimatedContainer(
-                duration: AppAnimation.normal,
-                curve: Curves.easeOutBack,
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 3),
-                decoration: BoxDecoration(
-                  color: active ? c.tealSurface : Colors.transparent,
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                ),
-                child: Icon(
-                  active ? t.$4 : t.$3,
-                  size: 20,
-                  color: active ? c.teal : c.textFaint,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(t.$2,
-                  style: AppType.body(
-                      size: 10.5,
-                      weight: active ? FontWeight.w700 : FontWeight.w500,
-                      color: active ? c.teal : c.textFaint)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _fabButton(BuildContext context, AppColorsX c) {
-    return SizedBox(
-      width: 64,
-      child: GestureDetector(
-        onTap: onCreate,
-        child: Center(
-          child: Transform.translate(
-            offset: const Offset(0, -12),
-            child: AnimatedPress(
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [c.teal, c.tealDeep],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                  boxShadow: [
-                    BoxShadow(
-                      color: c.teal.withValues(alpha: 0.4),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: const Icon(Icons.add, color: Colors.white, size: 22),
-              ),
+    return GestureDetector(
+      onTap: () => onTab(t.$1),
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AnimatedContainer(
+            duration: AppAnimation.normal,
+            curve: Curves.easeOutBack,
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16, vertical: 3),
+            decoration: BoxDecoration(
+              color: active ? c.tealSurface : Colors.transparent,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+            ),
+            child: Icon(
+              active ? t.$4 : t.$3,
+              size: 20,
+              color: active ? c.teal : c.textFaint,
             ),
           ),
-        ),
+          const SizedBox(height: 2),
+          Text(t.$2,
+              style: AppType.body(
+                  size: 10.5,
+                  weight: active ? FontWeight.w700 : FontWeight.w500,
+                  color: active ? c.teal : c.textFaint)),
+        ],
       ),
     );
   }

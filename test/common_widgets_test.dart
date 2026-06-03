@@ -192,9 +192,9 @@ void main() {
         }),
       ));
       expect(find.text('Home'), findsOneWidget);
-      expect(find.text('Finance'), findsOneWidget);
-      expect(find.text('Customers'), findsOneWidget);
+      expect(find.text('Tools'), findsOneWidget);
       expect(find.text('Profile'), findsOneWidget);
+      expect(find.text('Ask Ascend'), findsOneWidget);
     });
 
     testWidgets('tab change triggers onTab', (tester) async {
@@ -209,8 +209,8 @@ void main() {
           );
         }),
       ));
-      await tester.tap(find.text('Finance'));
-      expect(selected, AppTab.finance);
+      await tester.tap(find.text('Tools'));
+      expect(selected, AppTab.tools);
     });
 
     testWidgets('pill variant renders differently', (tester) async {

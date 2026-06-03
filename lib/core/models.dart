@@ -1128,6 +1128,249 @@ class Receipt {
   }
 }
 
+// ── Shop Orders ─────────────────────────────────────────────────────────────
+
+/// A customer order placed through the business's online shop.
+/// Stored in the shared `shop_orders` table (see web migration
+/// 20260118000001_create_shop_module.sql).
+class ShopOrder {
+  final String id;
+  final String businessId;
+  final String customerName;
+  final String? customerPhone;
+  final String? customerEmail;
+  final String? customerAddress;
+  final int subtotalGhs;
+  final int totalGhs;
+  final String status; // pending | confirmed | processing | shipped | delivered | cancelled
+  final String? paymentStatus; // unpaid | paid | deposit_paid | refunded
+  final String? deliveryMethod;
+  final int deliveryFeeGhs;
+  final String? notes;
+  final List<ShopOrderItem> items;
+  final DateTime createdAt;
+  final DateTime? confirmedAt;
+  final DateTime? dispatchedAt;
+  final DateTime? deliveredAt;
+
+  const ShopOrder({
+    required this.id,
+    required this.businessId,
+    required this.customerName,
+    this.customerPhone,
+    this.customerEmail,
+    this.customerAddress,
+    required this.subtotalGhs,
+    required this.totalGhs,
+    required this.status,
+    this.paymentStatus,
+    this.deliveryMethod,
+    this.deliveryFeeGhs = 0,
+    this.notes,
+    this.items = const [],
+    required this.createdAt,
+    this.confirmedAt,
+    this.dispatchedAt,
+    this.deliveredAt,
+  });
+
+  String get statusLabel => switch (status) {
+        'confirmed' => 'Confirmed',
+        'processing' => 'Processing',
+        'shipped' => 'Shipped',
+        'delivered' => 'Delivered',
+        'cancelled' => 'Cancelled',
+        _ => 'Pending',
+      };
+
+  String get relativeTime {
+    final diff = DateTime.now().difference(createdAt);
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${createdAt.month}/${createdAt.day}';
+  }
+
+  factory ShopOrder.fromRow(Map<String, dynamic> row) {
+    final itemsRaw = row['items'] as List<dynamic>?;
+    return ShopOrder(
+      id: row['id'] as String,
+      businessId: row['business_id'] as String,
+      customerName:
+          (row['customer_name'] as String?)?.trim() ?? 'Customer',
+      customerPhone: row['customer_phone'] as String?,
+      customerEmail: row['customer_email'] as String?,
+      customerAddress: row['customer_address'] as String?,
+      subtotalGhs:
+          ((row['subtotal_ghs'] as num?)?.toDouble() ?? 0).round(),
+      totalGhs: ((row['total_ghs'] as num?)?.toDouble() ?? 0).round(),
+      status: (row['status'] as String?)?.toLowerCase() ?? 'pending',
+      paymentStatus: (row['payment_status'] as String?)?.toLowerCase(),
+      deliveryMethod: row['delivery_method'] as String?,
+      deliveryFeeGhs:
+          ((row['delivery_fee_ghs'] as num?)?.toDouble() ?? 0).round(),
+      notes: row['notes'] as String?,
+      items: itemsRaw != null
+          ? itemsRaw
+              .map((e) =>
+                  ShopOrderItem.fromRow(Map<String, dynamic>.from(e as Map)))
+              .toList()
+          : [],
+      createdAt: (row['created_at'] as String?) != null
+          ? DateTime.parse(row['created_at'] as String)
+          : DateTime.now(),
+      confirmedAt: row['confirmed_at'] != null
+          ? DateTime.tryParse(row['confirmed_at'] as String)
+          : null,
+      dispatchedAt: row['dispatched_at'] != null
+          ? DateTime.tryParse(row['dispatched_at'] as String)
+          : null,
+      deliveredAt: row['delivered_at'] != null
+          ? DateTime.tryParse(row['delivered_at'] as String)
+          : null,
+    );
+  }
+}
+
+/// A line item within a shop order.
+class ShopOrderItem {
+  final String id;
+  final String? productId;
+  final String productName;
+  final int quantity;
+  final int unitPriceGhs;
+  final int totalPriceGhs;
+  final bool isFulfilled;
+
+  const ShopOrderItem({
+    required this.id,
+    this.productId,
+    required this.productName,
+    required this.quantity,
+    required this.unitPriceGhs,
+    required this.totalPriceGhs,
+    this.isFulfilled = false,
+  });
+
+  factory ShopOrderItem.fromRow(Map<String, dynamic> row) => ShopOrderItem(
+        id: row['id'] as String,
+        productId: row['product_id'] as String?,
+        productName:
+            (row['product_name'] as String?)?.trim() ?? 'Product',
+        quantity: (row['quantity'] as num?)?.toInt() ?? 1,
+        unitPriceGhs:
+            ((row['unit_price_ghs'] as num?)?.toDouble() ?? 0).round(),
+        totalPriceGhs:
+            ((row['total_price_ghs'] as num?)?.toDouble() ?? 0).round(),
+        isFulfilled: row['is_fulfilled'] == true,
+      );
+}
+
+// ── Business Documents (Verification Uploads) ───────────────────────────────
+
+/// A document uploaded for verification or business records.
+/// Stored in the shared `business_documents` table.
+class BusinessDocument {
+  final String id;
+  final String businessId;
+  final String name;
+  final String category; // verification | financial | legal | other
+  final String? description;
+  final String fileName;
+  final int fileSize;
+  final String fileType;
+  final String storagePath;
+  final String documentUrl;
+  final String? verificationTaskId;
+  final DateTime createdAt;
+
+  const BusinessDocument({
+    required this.id,
+    required this.businessId,
+    required this.name,
+    required this.category,
+    this.description,
+    required this.fileName,
+    required this.fileSize,
+    required this.fileType,
+    required this.storagePath,
+    required this.documentUrl,
+    this.verificationTaskId,
+    required this.createdAt,
+  });
+
+  String get fileSizeLabel {
+    if (fileSize < 1024) return '$fileSize B';
+    if (fileSize < 1024 * 1024) {
+      return '${(fileSize / 1024).toStringAsFixed(0)} KB';
+    }
+    return '${(fileSize / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  factory BusinessDocument.fromRow(Map<String, dynamic> row) =>
+      BusinessDocument(
+        id: row['id'] as String,
+        businessId: row['business_id'] as String,
+        name: (row['name'] as String?)?.trim() ?? 'Document',
+        category: (row['category'] as String?)?.toLowerCase() ?? 'other',
+        description: row['description'] as String?,
+        fileName: row['file_name'] as String? ?? 'file',
+        fileSize: (row['file_size'] as num?)?.toInt() ?? 0,
+        fileType: row['file_type'] as String? ?? 'application/octet-stream',
+        storagePath: row['storage_path'] as String? ?? '',
+        documentUrl: row['document_url'] as String? ?? '',
+        verificationTaskId: row['verification_task_id'] as String?,
+        createdAt: (row['created_at'] as String?) != null
+            ? DateTime.parse(row['created_at'] as String)
+            : DateTime.now(),
+      );
+}
+
+// ── Payment Transaction ─────────────────────────────────────────────────────
+
+/// A payment transaction record stored in the shared `payment_transactions` table.
+class PaymentTransaction {
+  final String id;
+  final String businessId;
+  final String? subscriptionId;
+  final int amountGhs;
+  final String currency;
+  final String provider; // paystack | manual
+  final String reference;
+  final String status; // pending | completed | failed | refunded
+  final String? metadata;
+  final DateTime createdAt;
+
+  const PaymentTransaction({
+    required this.id,
+    required this.businessId,
+    this.subscriptionId,
+    required this.amountGhs,
+    this.currency = 'GHS',
+    required this.provider,
+    required this.reference,
+    required this.status,
+    this.metadata,
+    required this.createdAt,
+  });
+
+  factory PaymentTransaction.fromRow(Map<String, dynamic> row) =>
+      PaymentTransaction(
+        id: row['id'] as String,
+        businessId: row['business_id'] as String,
+        subscriptionId: row['subscription_id'] as String?,
+        amountGhs: ((row['amount_ghs'] as num?)?.toDouble() ?? 0).round(),
+        currency: (row['currency'] as String?) ?? 'GHS',
+        provider: (row['provider'] as String?) ?? 'paystack',
+        reference: row['reference'] as String? ?? '',
+        status: (row['status'] as String?) ?? 'pending',
+        metadata: row['metadata'] as String?,
+        createdAt: (row['created_at'] as String?) != null
+            ? DateTime.parse(row['created_at'] as String)
+            : DateTime.now(),
+      );
+}
+
 // ── Recurring Invoices ──────────────────────────────────────────────────────
 
 /// Frequency for recurring invoice templates.

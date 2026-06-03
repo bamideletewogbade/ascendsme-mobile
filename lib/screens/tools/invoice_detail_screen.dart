@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -5,6 +6,7 @@ import '../../config.dart';
 import '../../core/models.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
+import '../../services/crm_service.dart';
 import '../../services/invoice_pdf_service.dart';
 import '../../services/supabase_service.dart';
 import '../../state/app_state.dart';
@@ -83,7 +85,22 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
         invoiceId: inv.backendId!,
         businessId: businessId,
         paymentMethod: method,
-      ).then((_) {}),
+      ).then((_) {
+        // Fulfill inventory reservations when invoice is paid
+        unawaited(SupabaseService.fulfillReservationsByReference(
+          referenceId: inv.backendId!,
+          reservationType: 'invoice',
+        ));
+        // Sync CRM metrics
+        if (businessId != null) {
+          unawaited(CrmService.syncAfterPurchase(
+            businessId: businessId,
+            customerName: inv.customer,
+            customerEmail: inv.clientEmail,
+            amountGhs: inv.amount.toDouble(),
+          ));
+        }
+      }),
       errorMessage: 'Could not save the receipt. Try again.',
     );
   }
@@ -116,7 +133,14 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     if (ok != true || inv.backendId == null) return;
     if (!mounted) return;
     await _runAction(
-      () => SupabaseService.voidInvoice(invoiceId: inv.backendId!),
+      () async {
+        await SupabaseService.voidInvoice(invoiceId: inv.backendId!);
+        // Release inventory reservations when invoice is voided
+        await SupabaseService.releaseReservationsByReference(
+          referenceId: inv.backendId!,
+          reservationType: 'invoice',
+        );
+      },
       errorMessage: 'Could not void the invoice. Try again.',
     );
   }

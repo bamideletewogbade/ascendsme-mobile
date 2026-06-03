@@ -19,6 +19,7 @@ class StaffScreen extends StatefulWidget {
 
 class _StaffScreenState extends State<StaffScreen> {
   String _searchQuery = '';
+  String _roleFilter = 'All';
 
   @override
   void initState() {
@@ -29,6 +30,10 @@ class _StaffScreenState extends State<StaffScreen> {
         state.loadStaff();
       }
     });
+  }
+
+  Future<void> _refresh() async {
+    await context.read<AppState>().loadStaff();
   }
 
   void _openAddStaff(BuildContext context) {
@@ -95,7 +100,15 @@ class _StaffScreenState extends State<StaffScreen> {
     final state = context.watch<AppState>();
     final allStaff = state.staff;
 
+    // Derive unique roles from staff list (sorted, 'All' first)
+    final roles = ['All', ...{
+      for (final s in allStaff) s.role,
+    }.toList()..sort()];
+
     final filtered = allStaff.where((staff) {
+      // Role filter
+      if (_roleFilter != 'All' && staff.role != _roleFilter) return false;
+      // Search query
       if (_searchQuery.isEmpty) return true;
       final q = _searchQuery.toLowerCase();
       return staff.staffName.toLowerCase().contains(q) ||
@@ -117,14 +130,21 @@ class _StaffScreenState extends State<StaffScreen> {
                   ? const _LoadingState()
                   : allStaff.isEmpty
                       ? _EmptyState(onAdd: () => _openAddStaff(context))
-                      : _ListBody(
-                          staff: filtered,
-                          allCount: allStaff.length,
-                          searchQuery: _searchQuery,
-                          onSearchChanged: (v) => setState(() => _searchQuery = v),
-                          onAdd: () => _openAddStaff(context),
-                          onEdit: (s) => _openEditStaff(context, s),
-                          onDeactivate: _deactivateStaff,
+                      : RefreshIndicator(
+                          onRefresh: _refresh,
+                          color: c.teal,
+                          child: _ListBody(
+                            staff: filtered,
+                            allCount: allStaff.length,
+                            roles: roles,
+                            roleFilter: _roleFilter,
+                            searchQuery: _searchQuery,
+                            onSearchChanged: (v) => setState(() => _searchQuery = v),
+                            onRoleChanged: (v) => setState(() => _roleFilter = v),
+                            onAdd: () => _openAddStaff(context),
+                            onEdit: (s) => _openEditStaff(context, s),
+                            onDeactivate: _deactivateStaff,
+                          ),
                         ),
             ),
             if (allStaff.isNotEmpty)
@@ -149,8 +169,11 @@ class _StaffScreenState extends State<StaffScreen> {
 class _ListBody extends StatelessWidget {
   final List<StaffMember> staff;
   final int allCount;
+  final List<String> roles;
+  final String roleFilter;
   final String searchQuery;
   final ValueChanged<String> onSearchChanged;
+  final ValueChanged<String> onRoleChanged;
   final VoidCallback onAdd;
   final void Function(StaffMember) onEdit;
   final void Function(StaffMember) onDeactivate;
@@ -158,8 +181,11 @@ class _ListBody extends StatelessWidget {
   const _ListBody({
     required this.staff,
     required this.allCount,
+    required this.roles,
+    required this.roleFilter,
     required this.searchQuery,
     required this.onSearchChanged,
+    required this.onRoleChanged,
     required this.onAdd,
     required this.onEdit,
     required this.onDeactivate,
@@ -172,13 +198,12 @@ class _ListBody extends StatelessWidget {
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-      children: [
-        // Summary
-        Padding(
-          padding: const EdgeInsets.only(bottom: 14),
-          child: Text('$allCount team members',
-              style: AppType.body(size: 13, color: c.textMuted)),
-        ),
+      children: [        // Summary
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: Text('$allCount team members',
+                style: AppType.body(size: 13, color: c.textMuted)),
+          ),
 
         // Search bar
         Container(
@@ -213,7 +238,45 @@ class _ListBody extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 10),
+
+        // Role filter chips
+        SizedBox(
+          height: 36,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: roles.length,
+            separatorBuilder: (_, i) => const SizedBox(width: 6),
+            itemBuilder: (context, i) {
+              final role = roles[i];
+              final active = role == roleFilter;
+              return GestureDetector(
+                onTap: () => onRoleChanged(role),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: active ? c.teal : c.bgElevated,
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(
+                      color: active ? c.teal : c.borderStrong,
+                    ),
+                  ),
+                  child: Text(
+                    role,
+                    style: AppType.body(
+                      size: 12,
+                      weight: FontWeight.w600,
+                      color: active ? Colors.white : c.textMuted,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 14),
 
         // Staff list
         if (staff.isEmpty)

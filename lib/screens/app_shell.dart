@@ -5,11 +5,9 @@ import '../core/widgets/common.dart';
 import '../services/sync_service.dart';
 import '../state/app_state.dart';
 import 'home_screen.dart';
-import 'finance_screen.dart';
-import 'customers_screen.dart';
 import 'tools_screen.dart';
 import 'profile_screen.dart';
-import 'verify_screen.dart';
+import 'ask_ascend_screen.dart';
 import 'tools/invoices_screen.dart';
 import 'tools/inventory_screen.dart';
 import 'tools/subscription_screen.dart';
@@ -20,8 +18,8 @@ import 'sheets/notifications_sheet.dart';
 import 'sheets/new_invoice_sheet.dart';
 import 'sheets/log_expense_sheet.dart';
 import 'sheets/log_sale_sheet.dart';
-import 'sheets/ask_ascend_sheet.dart';
 import 'tools/booking_screen.dart';
+import 'tools/cash_flow_screen.dart';
 
 class AppShell extends StatelessWidget {
   const AppShell({super.key});
@@ -44,8 +42,12 @@ class _AppShellBodyState extends State<_AppShellBody> {
   void _openNotifications() => _showSheet(context, const NotificationsSheet());
   void _openNewInvoice({VoidCallback? onSent}) =>
       _showSheet(context, NewInvoiceSheet(onSent: onSent));
-  void _openAI([String? prompt]) =>
-      _showSheet(context, AskAscendSheet(initialPrompt: prompt));
+  void _openAI([String? prompt]) {
+    if (prompt != null && prompt.isNotEmpty) {
+      context.read<AppState>().setAiPrompt(prompt);
+    }
+    context.read<AppState>().setTab(AppTab.askAscend);
+  }
 
   void _showSheet(BuildContext ctx, Widget sheet) {
     showModalBottomSheet(
@@ -92,24 +94,12 @@ class _AppShellBodyState extends State<_AppShellBody> {
       case 'rec_first_expense':
         LogExpenseSheet.show(ctx);
       case 'tools':
-        Navigator.push(
-          ctx,
-          MaterialPageRoute(builder: (_) => const ToolsScreen()),
-        );
-      case 'rec_profile':
-        context.read<AppState>().setTab(AppTab.profile);
+        context.read<AppState>().setTab(AppTab.tools);
       case 'rec_verify':
-        _pushVerification(ctx);
+        context.read<AppState>().setTab(AppTab.profile);
       case 'rec_all_clear':
-        context.read<AppState>().setTab(AppTab.finance);
+        context.read<AppState>().setTab(AppTab.home);
     }
-  }
-
-  void _pushVerification(BuildContext ctx) {
-    Navigator.push(
-      ctx,
-      MaterialPageRoute(builder: (_) => const VerifyScreen()),
-    );
   }
 
   void _pushTool(BuildContext ctx, String id) {
@@ -164,13 +154,12 @@ class _AppShellBodyState extends State<_AppShellBody> {
                         onAction: (id) => _handleAction(context, id),
                         onOpenDrawer: () => setState(() => _drawerOpen = true),
                       ),
-                      FinanceScreen(
+                      const CashFlowForecastScreen(),
+                      ToolsScreen(
                         onOpenDrawer: () => setState(() => _drawerOpen = true),
                       ),
-                      CustomersScreen(
-                        onOpenDrawer: () => setState(() => _drawerOpen = true),
-                      ),
-                      ProfileScreen(
+                      const ProfileScreen(),
+                      AskAscendScreen(
                         onOpenDrawer: () => setState(() => _drawerOpen = true),
                       ),
                     ],
@@ -181,7 +170,6 @@ class _AppShellBodyState extends State<_AppShellBody> {
                   BottomNav(
                     current: state.tab,
                     onTab: state.setTab,
-                    onCreate: _openNewInvoice,
                     variant: state.navVariant,
                   ),
               ],
@@ -195,18 +183,44 @@ class _AppShellBodyState extends State<_AppShellBody> {
               child: BottomNav(
                 current: state.tab,
                 onTab: state.setTab,
-                onCreate: _openNewInvoice,
                 variant: NavVariant.pill,
               ),
             ),
 
-          // ── Ask Ascend FAB (home tab only) ─
-          if (state.tab == AppTab.home)
-            Positioned(
-              right: 16,
-              bottom: bottomPad,
-              child: _AskAscendFAB(onTap: () => _openAI()),
+          // ── Ask Ascend FAB — bottom-right floating button ──
+          Positioned(
+            right: 20,
+            bottom: bottomPad + 16,
+            child: GestureDetector(
+              onTap: () => _openAI(),
+              child: AnimatedPress(
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [c.teal, c.tealDeep],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: c.teal.withValues(alpha: 0.4),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.auto_awesome,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+              ),
             ),
+          ),
 
           // ── Profile drawer ─────────────────
           ProfileDrawer(
@@ -293,47 +307,6 @@ class _OfflineBar extends StatelessWidget {
     }
 
     return const SizedBox.shrink();
-  }
-}
-
-// ── Floating Ask Ascend button ───────────────
-class _AskAscendFAB extends StatelessWidget {
-  final VoidCallback onTap;
-  const _AskAscendFAB({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [c.navy, c.navyDeep],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(99),
-          boxShadow: [
-            BoxShadow(
-                color: c.navy.withValues(alpha: 0.4),
-                blurRadius: 24,
-                offset: const Offset(0, 8)),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.auto_awesome, size: 15, color: Colors.white),
-            const SizedBox(width: 8),
-            Text('Ask Ascend',
-                style: AppType.body(
-                    size: 13, weight: FontWeight.w600, color: Colors.white)),
-          ],
-        ),
-      ),
-    );
   }
 }
 

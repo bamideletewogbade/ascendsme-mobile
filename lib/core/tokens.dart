@@ -215,11 +215,10 @@ class AppType {
       );
 
   static TextStyle body({double size = 13, FontWeight weight = FontWeight.w400, Color? color}) =>
-      GoogleFonts.inter(fontSize: size, fontWeight: weight, color: color);
-
-  static TextStyle mono({double size = 11, Color? color}) => GoogleFonts.jetBrainsMono(
+      GoogleFonts.inter(fontSize: size, fontWeight: weight, color: color);  static TextStyle mono({double size = 11, Color? color, FontWeight weight = FontWeight.w500}) =>
+      GoogleFonts.jetBrainsMono(
         fontSize: size,
-        fontWeight: FontWeight.w500,
+        fontWeight: weight,
         color: color,
       );
 
