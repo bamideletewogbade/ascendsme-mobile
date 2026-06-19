@@ -1,6 +1,7 @@
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
 import '../tokens.dart';
 import '../models.dart';
 import '../../state/app_state.dart';
@@ -205,6 +206,7 @@ class AppIcon extends StatelessWidget {
     'sparkle': Icons.auto_awesome,
     'plus': Icons.add,
     'file_text': Icons.description_outlined,
+    'request_quote': Icons.request_quote,
     'store': Icons.storefront_outlined,
   };
 
@@ -412,18 +414,33 @@ class AppAvatar extends StatelessWidget {
   final String initials;
   final double size;
   final String tone; // 'teal' | 'orange'
+  /// Optional image URL. When provided, shows a network image instead of initials.
+  final String? imageUrl;
+  /// Called when the avatar is tapped. Useful for logo upload.
+  final VoidCallback? onTap;
 
-  const AppAvatar(this.initials, {super.key, this.size = 36, this.tone = 'teal'});
+  const AppAvatar(this.initials, {
+    super.key,
+    this.size = 36,
+    this.tone = 'teal',
+    this.imageUrl,
+    this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final bg = tone == 'orange' ? c.amberSurface : c.tealSurface;
     final fg = tone == 'orange' ? c.amber : c.teal;
-    return Container(
+
+    /// Renders the initials fallback inside a circle.
+    Widget initialsWidget() => Container(
       width: size,
       height: size,
-      decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+      decoration: BoxDecoration(
+        color: bg,
+        shape: BoxShape.circle,
+      ),
       alignment: Alignment.center,
       child: Text(
         initials,
@@ -434,6 +451,45 @@ class AppAvatar extends StatelessWidget {
         ),
       ),
     );
+
+    /// When an imageUrl is provided, use Image.network with loadingBuilder
+    /// (shimmer skeleton while loading) and errorBuilder (initials fallback
+    /// on network failure).
+    Widget avatar;
+    if (imageUrl != null) {
+      avatar = ClipOval(
+        child: Image.network(
+          imageUrl!,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          loadingBuilder: (_, child, progress) {
+            if (progress == null) return child;
+            // Show a shimmer skeleton while the image loads
+            return Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: bg,
+                shape: BoxShape.circle,
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(size / 2),
+                child: AppShimmer(width: size, height: size, radius: size / 2),
+              ),
+            );
+          },
+          errorBuilder: (_, __, ___) => initialsWidget(),
+        ),
+      );
+    } else {
+      avatar = initialsWidget();
+    }
+
+    if (onTap != null) {
+      return GestureDetector(onTap: onTap, child: avatar);
+    }
+    return avatar;
   }
 }
 
@@ -511,7 +567,7 @@ class _AppShimmerState extends State<AppShimmer> with SingleTickerProviderStateM
     final c = context.colors;
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (_, __) => Container(
+      builder: (_, _) => Container(
         width: widget.width,
         height: widget.height,
         decoration: BoxDecoration(
@@ -557,6 +613,61 @@ class SectionHeader extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// AppPeriodSelector — shared 1M / 3M / 6M / YTD pill row
+// Uses Consumer<AppState> internally so it works anywhere.
+// ─────────────────────────────────────────────
+class AppPeriodSelector extends StatelessWidget {
+  /// Optional padding override. Defaults to EdgeInsets.symmetric(horizontal: 12, vertical: 5).
+  final EdgeInsetsGeometry? pillPadding;
+
+  const AppPeriodSelector({super.key, this.pillPadding});
+
+  static const _labels = ['1M', '3M', '6M', 'YTD'];
+
+  @override
+  Widget build(BuildContext context) {
+    return Consumer<AppState>(
+      builder: (ctx, state, _) {
+        final sc = ctx.colors;
+        return Row(
+          children: [
+            for (int i = 0; i < 4; i++)
+              GestureDetector(
+                onTap: () => state.setSelectedPeriod(i),
+                child: AnimatedContainer(
+                  duration: AppAnimation.fast,
+                  padding: pillPadding ?? const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  margin: const EdgeInsets.only(right: 6),
+                  decoration: BoxDecoration(
+                    color: state.selectedPeriodIndex == i
+                        ? sc.tealSurface
+                        : sc.bgElevated,
+                    borderRadius: BorderRadius.circular(99),
+                    border: Border.all(
+                      color: state.selectedPeriodIndex == i
+                          ? sc.teal
+                          : sc.border,
+                    ),
+                  ),
+                  child: Text(
+                    _labels[i],
+                    style: AppType.label(
+                      size: 10,
+                      color: state.selectedPeriodIndex == i
+                          ? sc.tealDeep
+                          : sc.textMuted,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }
@@ -737,7 +848,6 @@ class _AppInputState extends State<AppInput> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final isFocused = _focusNode.hasFocus;
-    final hasText = widget.controller.text.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -853,23 +963,153 @@ class _GoogleGlyph extends StatelessWidget {
     return SizedBox(
       width: size,
       height: size,
-      child: const Stack(
-        alignment: Alignment.center,
-        children: [
-          Text(
-            'G',
-            style: TextStyle(
-              fontFamily: 'Roboto',
-              fontWeight: FontWeight.w700,
-              fontSize: 17,
-              color: Color(0xFF4285F4),
-              height: 1.0,
-            ),
-          ),
-        ],
+      child: CustomPaint(
+        painter: _GoogleGPainter(),
       ),
     );
   }
+}
+
+// ─────────────────────────────────────────────
+// AiFormattedText — formatted AI response with
+// paragraph breaks, header detection, and cash
+// highlights.
+// ─────────────────────────────────────────────
+class AiFormattedText extends StatelessWidget {
+  final String text;
+  final Color baseColor;
+  final Color highlightColor;
+
+  const AiFormattedText({
+    super.key,
+    required this.text,
+    required this.baseColor,
+    required this.highlightColor,
+  });
+
+  static final _cashPattern = RegExp(r'GHS\s?[0-9,]+(?:\.[0-9]+)?');
+
+  @override
+  Widget build(BuildContext context) {
+    final paragraphs = text.split(RegExp(r'\n{2,}'));
+    if (paragraphs.length <= 1) {
+      return _buildParagraph(text.replaceAll('\n', ' '), bold: false);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: paragraphs.asMap().entries.map((e) {
+        final para = e.value.trim();
+        if (para.isEmpty) return const SizedBox.shrink();
+        final isHeader = para.endsWith(':') ||
+            (para.length < 60 && para == para.toUpperCase() &&
+                !para.contains('GHS'));
+        return Padding(
+          padding: EdgeInsets.only(top: e.key > 0 ? 8 : 0),
+          child: _buildParagraph(para, bold: isHeader),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _buildParagraph(String para, {required bool bold}) {
+    final spans = <InlineSpan>[];
+    int lastEnd = 0;
+
+    for (final match in _cashPattern.allMatches(para)) {
+      if (match.start > lastEnd) {
+        spans.add(TextSpan(text: para.substring(lastEnd, match.start)));
+      }
+      spans.add(TextSpan(
+        text: match.group(0),
+        style: AppType.body(
+          size: 14,
+          weight: FontWeight.w700,
+          color: highlightColor,
+        ),
+      ));
+      lastEnd = match.end;
+    }
+    if (lastEnd < para.length) {
+      spans.add(TextSpan(text: para.substring(lastEnd)));
+    }
+
+    return RichText(
+      text: TextSpan(
+        style: AppType.body(
+          size: bold ? 15 : 14,
+          weight: bold ? FontWeight.w600 : FontWeight.w400,
+          color: baseColor,
+        ).copyWith(height: 1.4),
+        children: spans,
+      ),
+    );
+  }
+}
+
+/// Paints the official Google "G" logo with the four brand colors
+/// (blue #4285F4, red #EA4335, yellow #FBBC05, green #34A853)
+/// using SVG-derived paths from Google's branding assets.
+class _GoogleGPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.width / 48.0;
+    canvas.scale(s, s);
+
+    // ── Blue segment (top/left arc) ────────────────────────────────────
+    final bluePath = Path()
+      ..moveTo(45.12, 24.5)
+      ..cubicTo(45.12, 22.94, 44.98, 21.44, 44.72, 20.0)
+      ..lineTo(24.0, 20.0)
+      ..lineTo(24.0, 28.51)
+      ..lineTo(35.84, 28.51)
+      ..cubicTo(35.33, 31.26, 33.78, 33.59, 31.45, 35.15)
+      ..lineTo(31.45, 40.67)
+      ..lineTo(38.56, 40.67)
+      ..cubicTo(42.72, 36.84, 45.12, 31.20, 45.12, 24.5)
+      ..close();
+    canvas.drawPath(bluePath, Paint()..color = const Color(0xFF4285F4)..style = PaintingStyle.fill);
+
+    // ── Green segment (right side) ────────────────────────────────────
+    final greenPath = Path()
+      ..moveTo(24.0, 46.0)
+      ..cubicTo(29.94, 46.0, 34.92, 44.03, 38.56, 40.67)
+      ..lineTo(31.45, 35.15)
+      ..cubicTo(29.48, 36.47, 26.96, 37.25, 24.0, 37.25)
+      ..cubicTo(18.27, 37.25, 13.42, 33.38, 11.69, 28.18)
+      ..lineTo(4.34, 28.18)
+      ..lineTo(4.34, 33.88)
+      ..cubicTo(7.96, 41.07, 15.4, 46.0, 24.0, 46.0)
+      ..close();
+    canvas.drawPath(greenPath, Paint()..color = const Color(0xFF34A853)..style = PaintingStyle.fill);
+
+    // ── Red segment (bottom left) ─────────────────────────────────────
+    final redPath = Path()
+      ..moveTo(11.69, 28.18)
+      ..cubicTo(11.25, 26.84, 11.0, 25.44, 11.0, 24.0)
+      ..cubicTo(11.0, 22.56, 11.25, 21.16, 11.69, 19.82)
+      ..lineTo(11.69, 14.12)
+      ..lineTo(4.34, 14.12)
+      ..cubicTo(2.85, 17.09, 2.0, 20.45, 2.0, 24.0)
+      ..cubicTo(2.0, 27.55, 2.85, 30.91, 4.34, 33.88)
+      ..lineTo(11.69, 28.18)
+      ..close();
+    canvas.drawPath(redPath, Paint()..color = const Color(0xFFEA4335)..style = PaintingStyle.fill);
+
+    // ── Yellow segment (bottom right) ─────────────────────────────────
+    final yellowPath = Path()
+      ..moveTo(24.0, 10.75)
+      ..cubicTo(27.23, 10.75, 30.13, 11.86, 32.41, 14.04)
+      ..lineTo(38.72, 7.73)
+      ..cubicTo(34.91, 4.18, 29.93, 2.0, 24.0, 2.0)
+      ..cubicTo(15.4, 2.0, 7.96, 6.93, 4.34, 14.12)
+      ..lineTo(11.69, 19.82)
+      ..cubicTo(13.42, 14.62, 18.27, 10.75, 24.0, 10.75)
+      ..close();
+    canvas.drawPath(yellowPath, Paint()..color = const Color(0xFFFBBC05)..style = PaintingStyle.fill);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // ─────────────────────────────────────────────
@@ -1157,4 +1397,175 @@ class _RingPainter extends CustomPainter {
   @override
   bool shouldRepaint(_RingPainter old) =>
       old.progress != progress || old.ringColor != ringColor;
+}
+
+// ─────────────────────────────────────────────
+// AppSheetOption — option tile used in bottom-sheet photo pickers and
+// other simple option lists. Works identically in Settings, Drawer, etc.
+// ─────────────────────────────────────────────
+class AppSheetOption extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  const AppSheetOption({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 20,
+                color: destructive ? c.rose : c.text),
+            const SizedBox(width: 14),
+            Text(label,
+                style: AppType.body(
+                    size: 14,
+                    weight: FontWeight.w500,
+                    color: destructive ? c.rose : c.text)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// showPaymentMethodSheet — cash / mobile money / bank transfer picker.
+// Returns the method key ('cash', 'momo', or 'bank') or null if dismissed.
+// ─────────────────────────────────────────────
+Future<String?> showPaymentMethodSheet(BuildContext context) {
+  return showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      final c = ctx.colors;
+      const options = [
+        ('cash', 'Cash', Icons.money),
+        ('momo', 'Mobile Money', Icons.phone_android),
+        ('bank', 'Bank transfer', Icons.account_balance),
+      ];
+      return Container(
+        decoration: BoxDecoration(
+          color: c.bgElevated,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: EdgeInsets.fromLTRB(
+            20, 0, 20, MediaQuery.of(ctx).padding.bottom + 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SheetHandle(),
+            const SizedBox(height: 4),
+            Text('How was it paid?',
+                style: AppType.heading(size: 18, color: c.text)),
+            const SizedBox(height: 6),
+            Text('This creates a receipt linked to the invoice.',
+                style: AppType.body(size: 12.5, color: c.textMuted)),
+            const SizedBox(height: 16),
+            for (final (value, label, icon) in options)
+              GestureDetector(
+                onTap: () => Navigator.pop(ctx, value),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: c.bg,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: c.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36, height: 36,
+                        decoration: BoxDecoration(
+                          color: c.navySurface,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(icon, size: 18, color: c.navy),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(label,
+                            style: AppType.body(
+                                size: 14,
+                                weight: FontWeight.w600,
+                                color: c.text)),
+                      ),
+                      Icon(Icons.chevron_right, size: 18, color: c.textFaint),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+// ─────────────────────────────────────────────
+// showPhotoOptionsSheet — bottom sheet with "Change photo" / "Remove photo"
+// options. Returns 'change', 'remove', or null if dismissed.
+// ─────────────────────────────────────────────
+Future<String?> showPhotoOptionsSheet(BuildContext context) {
+  return showModalBottomSheet<String>(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      final c = ctx.colors;
+      return Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(ctx).viewInsets.bottom,
+        ),
+        child: Container(
+          decoration: BoxDecoration(
+            color: c.bgElevated,
+            borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40, height: 5,
+                  margin: const EdgeInsets.only(top: 12, bottom: 8),
+                  decoration: BoxDecoration(
+                    color: c.textFaint,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+                AppSheetOption(
+                  icon: Icons.camera_alt_outlined,
+                  label: 'Change photo',
+                  onTap: () => Navigator.pop(ctx, 'change'),
+                ),
+                AppSheetOption(
+                  icon: Icons.delete_outline,
+                  label: 'Remove photo',
+                  onTap: () => Navigator.pop(ctx, 'remove'),
+                  destructive: true,
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }

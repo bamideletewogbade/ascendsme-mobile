@@ -26,7 +26,9 @@ class _AddProductSheetState extends State<AddProductSheet> {
   final _stockCtrl = TextEditingController();
   final _thresholdCtrl = TextEditingController();
   final _priceCtrl = TextEditingController();
+  final _costCtrl = TextEditingController();
   String _category = 'General';
+  bool _isGoods = true;
 
   bool _saving = false;
   String? _error;
@@ -47,8 +49,18 @@ class _AddProductSheetState extends State<AddProductSheet> {
       _stockCtrl.text = e.currentStock.toString();
       _thresholdCtrl.text = e.lowStockThreshold?.toString() ?? '';
       _priceCtrl.text = e.unitPrice?.toString() ?? '';
+      _costCtrl.text = e.unitCost?.toString() ?? '';
       _category = e.category;
+      _isGoods = e.isGoods;
     }
+    // Live margin preview: rebuild when price/cost changes
+    _priceCtrl.addListener(_onMarginFieldChanged);
+    _costCtrl.addListener(_onMarginFieldChanged);
+  }
+
+  void _onMarginFieldChanged() {
+    // setState is cheap and only rebuilds when a field is actively being edited
+    if (mounted) setState(() {});
   }
 
   @override
@@ -58,6 +70,7 @@ class _AddProductSheetState extends State<AddProductSheet> {
     _stockCtrl.dispose();
     _thresholdCtrl.dispose();
     _priceCtrl.dispose();
+    _costCtrl.dispose();
     super.dispose();
   }
 
@@ -72,6 +85,7 @@ class _AddProductSheetState extends State<AddProductSheet> {
     final stockRaw = _stockCtrl.text.trim();
     final thresholdRaw = _thresholdCtrl.text.trim();
     final priceRaw = _priceCtrl.text.trim();
+    final costRaw = _costCtrl.text.trim();
 
     if (name.isEmpty) {
       setState(() { _saving = false; _error = 'Product name is required.'; });
@@ -81,6 +95,7 @@ class _AddProductSheetState extends State<AddProductSheet> {
     final stock = int.tryParse(stockRaw) ?? 0;
     final threshold = thresholdRaw.isNotEmpty ? int.tryParse(thresholdRaw) : null;
     final price = priceRaw.isNotEmpty ? double.tryParse(priceRaw) : null;
+    final cost = costRaw.isNotEmpty ? double.tryParse(costRaw) : null;
 
     final appState = context.read<AppState>();
     final businessId = appState.business.id;
@@ -92,29 +107,31 @@ class _AddProductSheetState extends State<AddProductSheet> {
     if (businessId == null) {
       setState(() { _saving = false; _error = 'Business profile not set up yet.'; });
       return;
-    }
-
-    try {
+    }      try {
       if (widget.existing != null) {
         await InventoryService.updateProduct(
           productId: widget.existing!.id,
           businessId: businessId,
           name: name,
-          sku: sku,
+          sku: _isGoods ? sku : null,
           category: _category,
-          currentStock: stock,
-          lowStockThreshold: threshold,
+          currentStock: _isGoods ? stock : 0,
+          lowStockThreshold: _isGoods ? threshold : null,
           unitPrice: price,
+          unitCost: cost,
+          type: _isGoods ? 'GOODS' : 'SERVICE',
         );
       } else {
         await InventoryService.createProduct(
           businessId: businessId,
           name: name,
-          sku: sku,
+          sku: _isGoods ? sku : null,
           category: _category,
-          currentStock: stock,
-          lowStockThreshold: threshold,
+          currentStock: _isGoods ? stock : 0,
+          lowStockThreshold: _isGoods ? threshold : null,
           unitPrice: price,
+          unitCost: cost,
+          type: _isGoods ? 'GOODS' : 'SERVICE',
         );
       }
 
@@ -125,6 +142,13 @@ class _AddProductSheetState extends State<AddProductSheet> {
       if (!mounted) return;
       setState(() { _saving = false; _error = _friendlyError(e); });
     }
+  }
+
+  double _calcMargin(String priceStr, String costStr) {
+    final p = double.tryParse(priceStr);
+    final c = double.tryParse(costStr);
+    if (p == null || c == null || p == 0) return 0;
+    return ((p - c) / p * 100).clamp(0, 100).roundToDouble();
   }
 
   String _friendlyError(Object e) {
@@ -168,38 +192,83 @@ class _AddProductSheetState extends State<AddProductSheet> {
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
             child: Text(
-              isEdit
-                  ? 'Update product details and stock levels.'
-                  : 'Add a product to start tracking inventory levels.',
+              _isGoods
+                  ? (isEdit
+                      ? 'Update product details and stock levels.'
+                      : 'Add a product to start tracking inventory levels.')
+                  : (isEdit
+                      ? 'Update service details.'
+                      : 'Add a service you offer. Services don\'t require stock tracking.'),
               style: AppType.body(size: 13, color: c.textMuted),
             ),
           ),
+
+          // Goods / Service toggle
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Type',
+                    style: AppType.body(
+                        size: 11.5, weight: FontWeight.w600, color: c.textMuted)),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: c.bgInset,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      _TypeToggle(
+                        label: 'Physical product',
+                        icon: Icons.inventory_2_outlined,
+                        active: _isGoods,
+                        onTap: () => setState(() => _isGoods = true),
+                      ),
+                      const SizedBox(width: 3),
+                      _TypeToggle(
+                        label: 'Service',
+                        icon: Icons.miscellaneous_services_outlined,
+                        active: !_isGoods,
+                        onTap: () => setState(() => _isGoods = false),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
 
           // Product name
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: _Field(
-              label: 'Product name',
+              label: _isGoods ? 'Product name' : 'Service name',
               ctrl: _nameCtrl,
-              hint: 'e.g. Ankara fabric, Kente stole',
+              hint: _isGoods ? 'e.g. Ankara fabric, Kente stole' : 'e.g. Consultation, Haircut',
               autofocus: true,
             ),
           ),
           const SizedBox(height: 14),
 
-          // SKU + Category row
+          // SKU + Category row (only show SKU for goods)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
-                Expanded(
-                  child: _Field(
-                    label: 'SKU (optional)',
-                    ctrl: _skuCtrl,
-                    hint: 'e.g. AK-001',
+                if (_isGoods)
+                  Expanded(
+                    child: _Field(
+                      label: 'SKU (optional)',
+                      ctrl: _skuCtrl,
+                      hint: 'e.g. AK-001',
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
+                if (_isGoods) const SizedBox(width: 12),
+                if (_isGoods) const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -238,43 +307,67 @@ class _AddProductSheetState extends State<AddProductSheet> {
           ),
           const SizedBox(height: 14),
 
-          // Current stock + Low stock threshold
+          // Current stock + Low stock threshold (only for goods)
+          if (_isGoods)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _Field(
+                      label: 'Current stock',
+                      ctrl: _stockCtrl,
+                      hint: '0',
+                      keyboard: TextInputType.number,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _Field(
+                      label: 'Low stock alert at',
+                      ctrl: _thresholdCtrl,
+                      hint: 'e.g. 5',
+                      keyboard: TextInputType.number,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (_isGoods) const SizedBox(height: 14),
+
+          // Price + Cost row
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
                 Expanded(
                   child: _Field(
-                    label: 'Current stock',
-                    ctrl: _stockCtrl,
-                    hint: '0',
-                    keyboard: TextInputType.number,
+                    label: 'Selling price (GHS)',
+                    ctrl: _priceCtrl,
+                    hint: '0.00',
+                    keyboard: const TextInputType.numberWithOptions(decimal: true),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: _Field(
-                    label: 'Low stock alert at',
-                    ctrl: _thresholdCtrl,
-                    hint: 'e.g. 5',
-                    keyboard: TextInputType.number,
+                    label: 'Unit cost (GHS)',
+                    ctrl: _costCtrl,
+                    hint: '0.00',
+                    keyboard: const TextInputType.numberWithOptions(decimal: true),
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 14),
-
-          // Unit price
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: _Field(
-              label: 'Unit price GHS (optional)',
-              ctrl: _priceCtrl,
-              hint: '0.00',
-              keyboard: const TextInputType.numberWithOptions(decimal: true),
+          if (_isGoods && _priceCtrl.text.isNotEmpty && _costCtrl.text.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
+              child: Text(
+                'Profit margin: ${_calcMargin(_priceCtrl.text, _costCtrl.text)}%',
+                style: AppType.body(size: 11, color: c.teal),
+              ),
             ),
-          ),
 
           if (_error != null) ...[
             const SizedBox(height: 16),
@@ -301,7 +394,7 @@ class _AddProductSheetState extends State<AddProductSheet> {
             ),
           ],
 
-          const SizedBox(height: 22),
+          const SizedBox(height: 16),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: _saving
@@ -337,14 +430,20 @@ class _AddProductSheetState extends State<AddProductSheet> {
           ),
           const SizedBox(height: 16),
           Text(
-            widget.existing != null ? 'Product updated' : 'Product added',
+            _isGoods
+                ? (widget.existing != null ? 'Product updated' : 'Product added')
+                : (widget.existing != null ? 'Service updated' : 'Service added'),
             style: AppType.heading(size: 22, color: c.text),
           ),
           const SizedBox(height: 6),
           Text(
-            widget.existing != null
-                ? 'Inventory levels updated.'
-                : 'Start tracking stock levels and get low-stock alerts.',
+            _isGoods
+                ? (widget.existing != null
+                    ? 'Inventory levels updated.'
+                    : 'Start tracking stock levels and get low-stock alerts.')
+                : (widget.existing != null
+                    ? 'Service details updated.'
+                    : 'Service has been added to your offerings.'),
             textAlign: TextAlign.center,
             style: AppType.body(size: 13, color: c.textMuted),
           ),
@@ -354,6 +453,53 @@ class _AddProductSheetState extends State<AddProductSheet> {
               variant: BtnVariant.secondary,
               onTap: () => Navigator.pop(context)),
         ],
+      ),
+    );
+  }
+}
+
+// ── Type Toggle ──────────────────────────────────────────────────────────────
+class _TypeToggle extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _TypeToggle({
+    required this.label,
+    required this.icon,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: AppAnimation.fast,
+          padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+          decoration: BoxDecoration(
+            color: active ? c.bgElevated : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
+            border: active ? Border.all(color: c.border) : null,
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 15, color: active ? c.teal : c.textFaint),
+              const SizedBox(width: 6),
+              Text(label,
+                  style: AppType.body(
+                      size: 12,
+                      weight: FontWeight.w600,
+                      color: active ? c.text : c.textMuted)),
+            ],
+          ),
+        ),
       ),
     );
   }

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'helpers.dart';
 import '../lib/core/widgets/common.dart';
-import '../lib/core/tokens.dart';
 import '../lib/state/app_state.dart';
 
 void main() {
@@ -186,15 +185,14 @@ void main() {
           return BottomNav(
             current: AppTab.home,
             onTab: (_) {},
-            onCreate: () {},
             variant: NavVariant.classic,
           );
         }),
       ));
       expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Finance'), findsOneWidget);
       expect(find.text('Tools'), findsOneWidget);
       expect(find.text('Profile'), findsOneWidget);
-      expect(find.text('Ask Ascend'), findsOneWidget);
     });
 
     testWidgets('tab change triggers onTab', (tester) async {
@@ -204,7 +202,6 @@ void main() {
           return BottomNav(
             current: AppTab.home,
             onTab: (tab) => selected = tab,
-            onCreate: () {},
             variant: NavVariant.classic,
           );
         }),
@@ -219,7 +216,6 @@ void main() {
           return BottomNav(
             current: AppTab.home,
             onTab: (_) {},
-            onCreate: () {},
             variant: NavVariant.pill,
           );
         }),
@@ -243,7 +239,10 @@ void main() {
       ));
       expect(find.text('My Screen'), findsOneWidget);
       // Back button should exist
-      expect(find.byIcon(Icons.chevron_left), findsOneWidget);
+      expect(find.byIcon(Icons.arrow_back), findsOneWidget);
+      // Tap back button
+      await tester.tap(find.byIcon(Icons.arrow_back));
+      expect(popped, true);
     });
   });
 

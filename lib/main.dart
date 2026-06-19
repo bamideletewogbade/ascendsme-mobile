@@ -50,23 +50,25 @@ Future<void> main() async {
       error: details.exception,
       stackTrace: details.stack,
     );
+    // Use Container instead of Material — Material requires a Theme ancestor,
+    // but ErrorWidget.builder runs outside the MaterialApp widget tree, so
+    // Material would throw a secondary "No Material widget found" error that
+    // masks the real problem (see Flutter issue #148037).
     return Directionality(
       textDirection: TextDirection.ltr,
-      child: Material(
+      child: Container(
         color: const Color(0xFFFFEBEE),
+        padding: const EdgeInsets.all(16),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: SingleChildScrollView(
-              child: Text(
-                'Build error:\n\n'
-                '${details.exceptionAsString()}\n\n'
-                '${details.stack}',
-                style: const TextStyle(
-                  color: Colors.black87,
-                  fontFamily: 'monospace',
-                  fontSize: 11,
-                ),
+          child: SingleChildScrollView(
+            child: Text(
+              'Build error:\n\n'
+              '${details.exceptionAsString()}\n\n'
+              '${details.stack}',
+              style: const TextStyle(
+                color: Colors.black87,
+                fontFamily: 'monospace',
+                fontSize: 11,
               ),
             ),
           ),

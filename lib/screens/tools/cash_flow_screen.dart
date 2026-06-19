@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../core/models.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
+import '../../services/app_logger.dart';
 import '../../services/cash_flow_service.dart';
 import '../../state/app_state.dart';
 import 'invoice_detail_screen.dart';
@@ -32,14 +33,24 @@ class _CashFlowForecastScreenState extends State<CashFlowForecastScreen> {
     final bizId = context.read<AppState>().business.id;
     if (bizId == null) return;
     setState(() => _loading = true);
-    final forecast = await CashFlowService.calculateForecast(businessId: bizId);
-    final recs = CashFlowService.generateRecommendations(forecast);
-    if (!mounted) return;
-    setState(() {
-      _forecast = forecast;
-      _recommendations = recs;
-      _loading = false;
-    });
+    try {
+      final forecast = await CashFlowService.calculateForecast(businessId: bizId);
+      final recs = CashFlowService.generateRecommendations(forecast);
+      if (!mounted) return;
+      setState(() {
+        _forecast = forecast;
+        _recommendations = recs;
+        _loading = false;
+      });
+    } catch (e, st) {
+      log.error('CashFlowForecastScreen._load failed', error: e, stackTrace: st);
+      if (!mounted) return;
+      setState(() {
+        _forecast = CashFlowForecastData.empty;
+        _recommendations = [];
+        _loading = false;
+      });
+    }
   }
 
   void _navigateToInvoices() {
@@ -110,6 +121,23 @@ class _CashFlowForecastScreenState extends State<CashFlowForecastScreen> {
                     ),
                     const SizedBox(height: 24),
 
+                    // ── Pipeline card ──
+                    if (_forecast.pipelineValue > 0) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: _PipelineCard(
+                          pipelineValue: _forecast.pipelineValue,
+                          proformaCount: context
+                              .read<AppState>()
+                              .invoices
+                              .where((i) => i.isProforma)
+                              .length,
+                          onConvert: _navigateToInvoices,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
                     // ── Quick stats summary ──
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -177,7 +205,7 @@ class _CashFlowForecastScreenState extends State<CashFlowForecastScreen> {
                             FadeInSlide(
                               index: 3,
                               child: _BreakdownTile(
-                                label: 'Pipeline (proformas)',
+                                label: 'Pipeline (${context.read<AppState>().invoices.where((i) => i.isProforma).length} proformas)',
                                 amount: _forecast.pipelineValue,
                                 color: c.amber,
                                 icon: Icons.description_outlined,
@@ -225,13 +253,33 @@ class _CashFlowForecastScreenState extends State<CashFlowForecastScreen> {
                       const SizedBox(height: 16),
 
                     // ── Recommendations ──
-                    if (_recommendations.isNotEmpty)
+                    if (_recommendations.isNotEmpty || _forecast.pipelineValue > 0)
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             SectionHeader('Recommendations'),
+                            // Pipeline conversion recommendation
+                            if (_forecast.pipelineValue > 0)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: FadeInSlide(
+                                  index: -1,
+                                  child: _RecCard(
+                                    rec: ForecastRecommendation(
+                                      type: 'pipeline',
+                                      title: 'Convert proformas to invoices',
+                                      description:
+                                          '${context.read<AppState>().invoices.where((i) => i.isProforma).length} proforma${context.read<AppState>().invoices.where((i) => i.isProforma).length == 1 ? '' : 's'} worth ${formatGHS(_forecast.pipelineValue.round())} awaiting approval — converting them could improve your cash position by ${formatGHS((_forecast.pipelineValue * 0.7).round())}.',
+                                      actionLabel: 'View Proformas',
+                                      impact: _forecast.pipelineValue,
+                                      urgency: 'medium',
+                                    ),
+                                    onTap: _navigateToInvoices,
+                                  ),
+                                ),
+                              ),
                             ..._recommendations.asMap().entries.map((e) => Padding(
                                   padding: const EdgeInsets.only(bottom: 10),
                                   child: FadeInSlide(
@@ -378,8 +426,7 @@ class _MiniStat extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: AppType.body(size: 10, weight: FontWeight.w600,
-                color: Colors.white.withValues(alpha: 0.6))),
+            style: AppType.label(size: 10, color: Colors.white.withValues(alpha: 0.6))),
         const SizedBox(height: 2),
         Text(value,
             style: AppType.body(size: 13, weight: FontWeight.w700, color: color)),
@@ -400,8 +447,8 @@ class _MiniChart extends StatelessWidget {
     final points = forecast.dailyForecast;
     if (points.isEmpty) return const SizedBox.shrink();
 
-    final maxVal = points.fold(0.0, (m, p) => p.projected > m ? p.projected : m);
-    final minVal = points.fold(0.0, (m, p) => p.projected < m ? p.projected : m);
+    final maxVal = points.fold(0.0, (m, p) => (p.projected > m ? p.projected : p.withPipeline > m ? p.withPipeline : m));
+    final minVal = points.fold(0.0, (m, p) => (p.projected < m ? p.projected : p.withPipeline < m ? p.withPipeline : m));
     final range = (maxVal - minVal).abs().clamp(1, double.infinity);
 
     return AppCard(
@@ -412,6 +459,8 @@ class _MiniChart extends StatelessWidget {
           // Legend
           Row(
             children: [
+              _LegendDot(color: c.amber, label: 'With pipeline'),
+              const SizedBox(width: 12),
               _LegendDot(color: c.teal, label: 'Projected'),
               const SizedBox(width: 12),
               _LegendDot(color: c.rose, label: 'Safety line'),
@@ -430,6 +479,7 @@ class _MiniChart extends StatelessWidget {
                 teal: c.teal,
                 rose: c.rose,
                 green: c.green,
+                amber: c.amber,
                 surfaceColor: c.tealSurface,
               ),
             ),
@@ -457,8 +507,7 @@ class _MiniChart extends StatelessWidget {
 
 class _ChartPainter extends CustomPainter {
   final List<DailyForecastPoint> points;
-  final double safetyLine, minVal, range;
-  final Color teal, rose, green, surfaceColor;
+  final double safetyLine, minVal, range;    final Color teal, rose, green, amber, surfaceColor;
 
   _ChartPainter({
     required this.points,
@@ -468,6 +517,7 @@ class _ChartPainter extends CustomPainter {
     required this.teal,
     required this.rose,
     required this.green,
+    required this.amber,
     required this.surfaceColor,
   });
 
@@ -495,6 +545,30 @@ class _ChartPainter extends CustomPainter {
         ..strokeWidth = 1.5;
       canvas.drawLine(Offset(0, safetyY), Offset(w, safetyY), dashPaint);
     }
+
+    Offset toPosPipeline(DailyForecastPoint p, int i) {
+      final x = i * xStep;
+      final y = h - 10 - ((p.withPipeline - minVal) * yScale);
+      return Offset(x, y);
+    }
+
+    // Build pipeline line path (dashed, amber)
+    final pipelinePaint = Paint()
+      ..color = amber.withValues(alpha: 0.7)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+
+    final pipelinePath = Path();
+    for (int i = 0; i < points.length; i++) {
+      final pos = toPosPipeline(points[i], i);
+      if (i == 0) {
+        pipelinePath.moveTo(pos.dx, pos.dy);
+      } else {
+        pipelinePath.lineTo(pos.dx, pos.dy);
+      }
+    }
+    canvas.drawPath(pipelinePath, pipelinePaint);
 
     // Build projection line path
     final linePaint = Paint()
@@ -592,7 +666,7 @@ class _StatTile extends StatelessWidget {
               Icon(icon, size: 14, color: color),
               const SizedBox(width: 6),
               Text(label,
-                  style: AppType.body(size: 11, color: c.textMuted)),
+                  style: AppType.label(size: 11, color: c.textMuted)),
             ],
           ),
           const SizedBox(height: 6),
@@ -648,6 +722,96 @@ class _BreakdownTile extends StatelessWidget {
                     color: positive ? c.green : (amount > 0 ? c.rose : c.text))),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ── Pipeline Card ───────────────────────────────────────────────────────────
+
+class _PipelineCard extends StatelessWidget {
+  final double pipelineValue;
+  final int proformaCount;
+  final VoidCallback onConvert;
+
+  const _PipelineCard({
+    required this.pipelineValue,
+    required this.proformaCount,
+    required this.onConvert,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final conversionEstimate = (pipelineValue * 0.7).round();
+
+    return AppCard(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: c.amber.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child:
+                    Icon(Icons.description_outlined, size: 18, color: c.amber),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Pipeline — $proformaCount proforma${proformaCount == 1 ? '' : 's'}',
+                        style: AppType.heading(
+                            size: 13.5,
+                            color: c.text)),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${formatGHS(pipelineValue.round())} awaiting client approval',
+                      style: AppType.body(size: 12, color: c.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('If approved, you could add',
+                        style: AppType.body(
+                            size: 11, color: c.textMuted)),
+                    const SizedBox(height: 2),
+                    Text('+${formatGHS(conversionEstimate)}',
+                        style: AppType.heading(
+                            size: 18, color: c.green)),
+                    const SizedBox(height: 1),
+                    Text('to your projected cash (est. 70% conversion)',
+                        style: AppType.body(
+                            size: 10, color: c.textFaint)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              AppBtn(
+                'Convert',
+                icon: 'north_east',
+                fontSize: 12.5,
+                onTap: onConvert,
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

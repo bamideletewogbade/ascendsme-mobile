@@ -280,8 +280,11 @@ class _ChatBubble extends StatelessWidget {
                   bottomRight: Radius.circular(16),
                 ),
               ),
-              child: Text(msg.text,
-                  style: AppType.body(size: 14, color: c.text)),
+              child: AiFormattedText(
+                text: msg.text,
+                baseColor: c.text,
+                highlightColor: c.teal,
+              ),
             ),
           ),
         ],
@@ -290,6 +293,8 @@ class _ChatBubble extends StatelessWidget {
   }
 }
 
+/// Formats AI response text into a RichText with styled sections, cash
+/// highlights, and line-break support.
 // ── Typing indicator ──────────────────────────────────────────────────────────
 class _TypingBubble extends StatefulWidget {
   const _TypingBubble();

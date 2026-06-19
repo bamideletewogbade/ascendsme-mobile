@@ -211,7 +211,7 @@ class _SplashMonogramState extends State<_SplashMonogram>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _pulseAnim,
-      builder: (_, __) => Transform.scale(
+      builder: (_, _) => Transform.scale(
         scale: _pulseAnim.value,
         child: Container(
           width: 88,
@@ -274,7 +274,7 @@ class _PulsingLoaderState extends State<_PulsingLoader>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (_, __) => Row(
+      builder: (_, _) => Row(
         mainAxisSize: MainAxisSize.min,
         children: List.generate(3, (i) {
           final delay = i * 0.15;

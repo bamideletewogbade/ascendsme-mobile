@@ -97,10 +97,12 @@ class _Card extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              AppBtn(rec.cta,
-                  variant: BtnVariant.secondary,
-                  fontSize: 12.5,
-                  onTap: () => onAction(rec.id)),
+              Expanded(
+                child: AppBtn(rec.cta,
+                    variant: BtnVariant.secondary,
+                    fontSize: 12.5,
+                    onTap: () => onAction(rec.id)),
+              ),
               const SizedBox(width: 8),
               AppPill(rec.impact, tone: PillTone.green, small: true),
             ],

@@ -20,7 +20,6 @@ class ActivityScreen extends StatefulWidget {
 class _ActivityScreenState extends State<ActivityScreen> {
   /// Which activity kinds to show. Empty set = show all.
   Set<ActivityKind> _filters = {};
-  int _dateRangeDays = 0; // 0 = all time, 7 = 7 days, 30 = 30 days
 
   static final _filterOptions = <String, Set<ActivityKind>>{
     'All': <ActivityKind>{},
@@ -42,18 +41,21 @@ class _ActivityScreenState extends State<ActivityScreen> {
       limit: 999, // no limit
     );
 
-    // Apply date range filter
-    final cutoff = _dateRangeDays > 0
-        ? DateTime.now().subtract(Duration(days: _dateRangeDays))
-        : null;
-    final dateFiltered = cutoff != null
-        ? allEvents.where((e) => e.time.isAfter(cutoff)).toList()
-        : allEvents;
+    // Apply period filter from AppState
+    final periodMonths = state.effectivePeriodMonths;
+    final now_ = DateTime.now();
+    final periodEnd = DateTime(now_.year, now_.month + 1, 1);
+    final periodStart = periodMonths <= 0
+        ? DateTime(now_.year, 1, 1)
+        : DateTime(now_.year, now_.month - periodMonths + 1, 1);
+    final periodFiltered = allEvents
+        .where((e) => !e.time.isBefore(periodStart) && e.time.isBefore(periodEnd))
+        .toList();
 
     // Apply kind filter
     final filtered = _hasFilter
-        ? dateFiltered.where((e) => _filters.contains(e.kind)).toList()
-        : dateFiltered;
+        ? periodFiltered.where((e) => _filters.contains(e.kind)).toList()
+        : periodFiltered;
 
     // Compute stats from filtered results
     double totalIncome = 0;
@@ -67,6 +69,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
           case ActivityKind.invoicePaid:
             totalIncome += e.amount!;
           case ActivityKind.invoiceSent:
+          case ActivityKind.quoteCreated:
+          case ActivityKind.quoteExpired:
+          case ActivityKind.quoteConverted:
             break;
         }
       }
@@ -75,8 +80,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
 
     // Count per filter group
     int countForGroup(Set<ActivityKind> kinds) => kinds.isEmpty
-        ? dateFiltered.length
-        : dateFiltered.where((e) => kinds.contains(e.kind)).length;
+        ? periodFiltered.length
+        : periodFiltered.where((e) => kinds.contains(e.kind)).length;
 
     return Scaffold(
       backgroundColor: c.bg,
@@ -133,30 +138,10 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 ),
               ),
 
-            // ── Date range chips ──
-            SizedBox(
-              height: 36,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(20, 6, 20, 0),
-                children: [
-                  _RangeChip(
-                    label: 'All time',
-                    active: _dateRangeDays == 0,
-                    onTap: () => setState(() => _dateRangeDays = 0),
-                  ),
-                  _RangeChip(
-                    label: '7 days',
-                    active: _dateRangeDays == 7,
-                    onTap: () => setState(() => _dateRangeDays = 7),
-                  ),
-                  _RangeChip(
-                    label: '30 days',
-                    active: _dateRangeDays == 30,
-                    onTap: () => setState(() => _dateRangeDays = 30),
-                  ),
-                ],
-              ),
+            // ── Period pills (shared with Finance) ──
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 6, 20, 0),
+              child: AppPeriodSelector(),
             ),
 
             // ── Kind filter chips ──
@@ -189,10 +174,9 @@ class _ActivityScreenState extends State<ActivityScreen> {
               child: filtered.isEmpty
                   ? _EmptyActivity(
                       allEmpty: allEvents.isEmpty,
-                      filterActive: _hasFilter || _dateRangeDays > 0,
+                      filterActive: _hasFilter,
                       onClearFilter: () => setState(() {
                         _filters = {};
-                        _dateRangeDays = 0;
                       }),
                     )
                   : RefreshIndicator(
@@ -294,50 +278,6 @@ class _ActivityScreenState extends State<ActivityScreen> {
         }
       }
     }
-  }
-}
-
-// ── Date range chip ────────────────────────────────────────────────────────
-
-class _RangeChip extends StatelessWidget {
-  final String label;
-  final bool active;
-  final VoidCallback onTap;
-
-  const _RangeChip({
-    required this.label,
-    required this.active,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-          decoration: BoxDecoration(
-            color: active ? c.navy : c.bgInset,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: active ? c.navy : c.border),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.schedule, size: 12,
-                  color: active ? Colors.white : c.textMuted),
-              const SizedBox(width: 4),
-              Text(label,
-                  style: AppType.body(size: 11.5, weight: FontWeight.w600,
-                      color: active ? Colors.white : c.textMuted)),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 }
 
@@ -486,6 +426,27 @@ class _ActivityRow extends StatelessWidget {
         c.orange,
         c.rose,
         '−',
+      ),
+      ActivityKind.quoteCreated => (
+        Icons.description_outlined,
+        c.tealSurface,
+        c.tealDeep,
+        c.tealDeep,
+        '',
+      ),
+      ActivityKind.quoteExpired => (
+        Icons.warning_amber_rounded,
+        c.rose.withValues(alpha: 0.12),
+        c.rose,
+        c.rose,
+        '',
+      ),
+      ActivityKind.quoteConverted => (
+        Icons.north_east,
+        c.greenSurface,
+        c.green,
+        c.green,
+        '',
       ),
     };
     final amount = event.amount;

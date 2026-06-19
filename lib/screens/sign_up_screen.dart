@@ -337,41 +337,39 @@ class _BusinessStep extends StatelessWidget {
           ],
         ),
 
-        const SizedBox(height: 20),
-
-        _SignUpField(
-          label: 'Your name',
-          controller: fullNameCtrl,
-          icon: Icons.person_outline,
-          hint: 'e.g. Adwoa Mensah',
-          keyboardType: TextInputType.name,
-          textInputAction: TextInputAction.next,
-          autofillHints: const [AutofillHints.name],
-          onSubmitted: (_) => nameFocus.requestFocus(),
-        ),
-        const SizedBox(height: 16),
-        _SignUpField(
-          label: 'Business name',
-          controller: nameCtrl,
-          focusNode: nameFocus,
-          icon: Icons.storefront_outlined,
-          hint: 'e.g. Akwaaba Threads',
-          textInputAction: TextInputAction.next,
-          autofillHints: const [AutofillHints.organizationName],
-          onSubmitted: (_) => phoneFocus.requestFocus(),
-        ),
-        const SizedBox(height: 16),
-        _SignUpField(
-          label: 'Phone number',
-          controller: phoneCtrl,
-          focusNode: phoneFocus,
-          icon: Icons.phone_outlined,
-          hint: '+233 XX XXX XXXX',
-          keyboardType: TextInputType.phone,
-          textInputAction: TextInputAction.done,
-          autofillHints: const [AutofillHints.telephoneNumber],
-          onSubmitted: (_) => onNext(),
-        ),
+        const SizedBox(height: 20),                        AppInput(
+                          label: 'Your name',
+                          controller: fullNameCtrl,
+                          icon: Icons.person_outline,
+                          hint: 'e.g. Adwoa Mensah',
+                          keyboardType: TextInputType.name,
+                          textInputAction: TextInputAction.next,
+                          autofillHints: const [AutofillHints.name],
+                          onSubmitted: (_) => nameFocus.requestFocus(),
+                        ),
+                        const SizedBox(height: 16),
+                        AppInput(
+                          label: 'Business name',
+                          controller: nameCtrl,
+                          focusNode: nameFocus,
+                          icon: Icons.storefront_outlined,
+                          hint: 'e.g. Akwaaba Threads',
+                          textInputAction: TextInputAction.next,
+                          autofillHints: const [AutofillHints.organizationName],
+                          onSubmitted: (_) => phoneFocus.requestFocus(),
+                        ),
+                        const SizedBox(height: 16),
+                        AppInput(
+                          label: 'Phone number',
+                          controller: phoneCtrl,
+                          focusNode: phoneFocus,
+                          icon: Icons.phone_outlined,
+                          hint: '+233 XX XXX XXXX',
+                          keyboardType: TextInputType.phone,
+                          textInputAction: TextInputAction.done,
+                          autofillHints: const [AutofillHints.telephoneNumber],
+                          onSubmitted: (_) => onNext(),
+                        ),
         const SizedBox(height: 16),
 
         Text('Industry',
@@ -564,7 +562,6 @@ class _AccountStep extends StatelessWidget {
                 ),
               )
             : AppBtn('Sign Up',
-                icon: 'trending_up',
                 full: true,
                 fontSize: 15,
                 onTap: onSubmit),
@@ -622,86 +619,6 @@ class _SuccessStep extends StatelessWidget {
           onTap: () => Navigator.pop(context),
         ),
         const SizedBox(height: 32),
-      ],
-    );
-  }
-}
-
-// ── Shared field ──────────────────────────────────────────────────────────────
-
-class _SignUpField extends StatelessWidget {
-  final String label;
-  final TextEditingController controller;
-  final IconData icon;
-  final String hint;
-  final bool obscure;
-  final Widget? suffix;
-  final TextInputType? keyboardType;
-  final TextInputAction? textInputAction;
-  final List<String>? autofillHints;
-  final ValueChanged<String>? onSubmitted;
-  final FocusNode? focusNode;
-
-  const _SignUpField({
-    required this.label,
-    required this.controller,
-    required this.icon,
-    required this.hint,
-    this.obscure = false,
-    this.suffix,
-    this.keyboardType,
-    this.textInputAction,
-    this.autofillHints,
-    this.onSubmitted,
-    this.focusNode,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label,
-            style: AppType.body(
-                size: 11.5, weight: FontWeight.w600, color: c.textMuted)),
-        const SizedBox(height: 6),
-        Container(
-          height: 50,
-          decoration: BoxDecoration(
-            color: c.bgElevated,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: c.border),
-          ),
-          child: Row(
-            children: [
-              const SizedBox(width: 14),
-              Icon(icon, size: 17, color: c.textFaint),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  obscureText: obscure,
-                  keyboardType: keyboardType,
-                  textInputAction: textInputAction,
-                  autofillHints: autofillHints,
-                  onSubmitted: onSubmitted,
-                  style: AppType.body(
-                      size: 14, weight: FontWeight.w500, color: c.text),
-                  decoration: InputDecoration(
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                    hintText: hint,
-                    hintStyle: AppType.body(size: 14, color: c.textFaint),
-                  ),
-                ),
-              ),
-              if (suffix != null) ...[suffix!, const SizedBox(width: 14)],
-            ],
-          ),
-        ),
       ],
     );
   }

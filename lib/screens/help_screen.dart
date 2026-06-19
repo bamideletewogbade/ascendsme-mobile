@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_animate/flutter_animate.dart';
 import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 
@@ -11,39 +13,22 @@ class HelpScreen extends StatelessWidget {
       'Complete the verification checklist (business registration, ID, tax certificate, bank statements). Once verified, your account manager prepares your bank-ready report and we match you to lenders who fit your revenue and operating history.',
     ),
     (
-      'Can I add team members to my business?',
-      'Team members are coming soon. The current release supports a single owner login per business; the web platform already supports invites for owners on the Lite plan and above.',
+      'How do I add team members?',
+      'Team member invites are available on the Lite plan and above via the web platform. Mobile support is coming soon — you\'ll be able to add staff directly from this app.',
     ),
     (
-      'Is my financial data shared with lenders?',
+      'Is my data shared with lenders?',
       'Only with your explicit consent when you initiate a lender application. You control exactly what is shared and can revoke access at any time.',
     ),
     (
-      'How do I get help with a specific issue?',
-      'Tap "Email support" below, or message your account manager via Chat/Call above. We typically reply within one business day.',
+      'How do I export my financial reports?',
+      'Go to Finance → Reports and tap the share icon to export as PDF. Invoicing also supports PDF sharing via the invoice detail screen.',
+    ),
+    (
+      'What if I forget my password?',
+      'Tap "Forgot password" on the sign-in screen. A reset link will be sent to your registered email address.',
     ),
   ];
-
-  static const _resources = [
-    ('description', 'Getting started guide'),
-    ('book',        'SME compliance checklist'),
-    ('school',      'Finance masterclass (free)'),
-    ('mail',        'Email support'),
-  ];
-
-  void _comingSoon(BuildContext context, String label) {
-    final c = context.colors;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('$label — coming soon.',
-            style: AppType.body(size: 13, color: Colors.white)),
-        backgroundColor: c.navyDeep,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -53,99 +38,148 @@ class HelpScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.only(bottom: 120),
         children: [
+          // ── Header ──────────────────────────────────────────────────────
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-            child: Text('Help & Support',
-                style: AppType.display(size: 28, color: c.text)),
-          ),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Help & Support',
+                    style: AppType.display(size: 28, color: c.text)),
+                const SizedBox(height: 4),
+                Text(
+                  'Get the most out of AscendSME',
+                  style: AppType.body(size: 13.5, color: c.textMuted),
+                ),
+              ],
+            ),
+          ).animate().fadeIn(duration: 300.ms).slideY(begin: 0.1, end: 0),
 
-          // Support card — honest about what's available now.
+          const SizedBox(height: 12),
+
+          // ── Contact Support Card ────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: AppCard(
-              background: c.navySurface,
-              border: Border.all(color: c.navySurfaceStrong),
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.support_agent,
-                          size: 22, color: c.navyDeep),
-                      const SizedBox(width: 10),
-                      Text('Need a hand?',
-                          style:
-                              AppType.heading(size: 15, color: c.text)),
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: c.tealSurface,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Icon(Icons.headset_mic,
+                            size: 20, color: c.teal),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Contact support',
+                                style: AppType.heading(
+                                    size: 15, color: c.text)),
+                            const SizedBox(height: 2),
+                            Text(
+                              'We typically reply within one business day',
+                              style: AppType.body(
+                                  size: 12, color: c.textMuted),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Email us at support@ascendsme.africa and the team will get back to you within one business day. In-app chat with an account manager is coming soon.',
-                    style: AppType.body(size: 13, color: c.textMuted),
-                  ),
                   const SizedBox(height: 14),
-                  AppBtn(
-                    'Email support',
-                    variant: BtnVariant.primary,
-                    icon: 'mail',
-                    fontSize: 12.5,
-                    onTap: () =>
-                        _comingSoon(context, 'Email support'),
+                  SizedBox(
+                    width: double.infinity,
+                    child: AppBtn(
+                      'Copy email address',
+                      variant: BtnVariant.primary,
+                      icon: 'content_copy',
+                      fontSize: 12.5,
+                      onTap: () => _copyEmail(context),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  GestureDetector(
+                    onTap: () => _copyEmail(context),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.email_outlined,
+                            size: 13, color: c.teal),
+                        const SizedBox(width: 6),
+                        Text(
+                          'support@ascendsme.africa',
+                          style: AppType.body(
+                              size: 12.5,
+                              color: c.teal,
+                              weight: FontWeight.w600),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 24),
+          ).animate().fadeIn(duration: 400.ms).slideY(begin: 0.1, end: 0),
 
-          // FAQ
+          const SizedBox(height: 28),
+
+          // ── FAQ ─────────────────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SectionHeader('Frequently asked'),
-                ..._faqs.map(
-                  (faq) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _FaqItem(question: faq.$1, answer: faq.$2),
-                  ),
-                ),
-              ],
-            ),
+            child: SectionHeader('Frequently asked questions'),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 8),
+          ..._faqs.asMap().entries.map(
+                (entry) => Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 3),
+                  child: _FaqItem(
+                          question: entry.value.$1, answer: entry.value.$2)
+                      .animate()
+                      .fadeIn(
+                          duration: 350.ms,
+                          delay: (50 * entry.key).ms)
+                      .slideY(begin: 0.08, end: 0),
+                ),
+              ),
 
-          // Resources
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SectionHeader('Resources'),
-                ..._resources.map(
-                  (r) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _ResourceRow(
-                      iconName: r.$1,
-                      label: r.$2,
-                      onTap: () => _comingSoon(context, r.$2),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
         ],
+      ),
+    );
+  }
+
+  static const _supportEmail = 'support@ascendsme.africa';
+
+  void _copyEmail(BuildContext context) {
+    final c = context.colors;
+    Clipboard.setData(const ClipboardData(text: _supportEmail));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Email address copied to clipboard',
+            style: TextStyle(color: Colors.white)),
+        backgroundColor: c.navyDeep,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
 }
 
+// ── FAQ Item ─────────────────────────────────────────────────────────────────
+
 class _FaqItem extends StatefulWidget {
   final String question, answer;
-
   const _FaqItem({required this.question, required this.answer});
 
   @override
@@ -165,66 +199,45 @@ class _FaqItemState extends State<_FaqItem> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(widget.question,
-                    style: AppType.body(
-                        size: 13, weight: FontWeight.w600, color: c.text)),
+              Icon(
+                _open ? Icons.help : Icons.help_outline,
+                size: 18,
+                color: _open ? c.tealDeep : c.textMuted,
               ),
-              Icon(_open ? Icons.expand_less : Icons.expand_more,
-                  size: 18, color: c.textMuted),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  widget.question,
+                  style: AppType.body(
+                    size: 13,
+                    weight: FontWeight.w600,
+                    color: _open ? c.teal : c.text,
+                  ),
+                ),
+              ),
+              Icon(
+                _open ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                size: 20,
+                color: c.textMuted,
+              ),
             ],
           ),
-          if (_open) ...[
-            const SizedBox(height: 8),
-            Text(widget.answer,
-                style: AppType.body(size: 12.5, color: c.textMuted)),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _ResourceRow extends StatelessWidget {
-  final String iconName, label;
-  final VoidCallback onTap;
-
-  const _ResourceRow({
-    required this.iconName,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final icon = switch (iconName) {
-      'description' => Icons.description_outlined,
-      'book'        => Icons.menu_book_outlined,
-      'school'      => Icons.school_outlined,
-      'mail'        => Icons.email_outlined,
-      _             => Icons.circle_outlined,
-    };
-
-    return AppCard(
-      onTap: onTap,
-      padding: const EdgeInsets.all(14),
-      child: Row(
-        children: [
-          Container(
-            width: 34, height: 34,
-            decoration: BoxDecoration(
-              color: c.bgInset, borderRadius: BorderRadius.circular(10)),
-            child: Icon(icon, size: 17, color: c.textMuted),
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: Padding(
+              padding: const EdgeInsets.only(top: 10, left: 28),
+              child: Text(
+                widget.answer,
+                style: AppType.body(size: 12.5, color: c.textMuted).copyWith(height: 1.5),
+              ),
+            ),
+            crossFadeState: _open
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 200),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(label,
-                style: AppType.body(
-                    size: 13, weight: FontWeight.w600, color: c.text)),
-          ),
-          Icon(Icons.chevron_right, size: 18, color: c.textFaint),
         ],
       ),
     );

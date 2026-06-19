@@ -24,7 +24,7 @@ class CacheService {
 
   String get _key {
     if (businessId == null) return 'cache_$domain';
-    return 'cache_${domain}_${businessId}';
+    return 'cache_${domain}_$businessId';
   }
 
   /// Write a list of row maps to the cache. Overwrites any previous data.

@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../core/models.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../core/widgets/customer_selector.dart';
 import '../../services/crm_service.dart';
 import '../../services/supabase_service.dart';
 import '../../state/app_state.dart';
+import '../tools/receipts_screen.dart';
 
 /// Bottom sheet for logging a direct sale — money received in the moment
 /// (cash at the counter, MoMo from a customer, bank transfer at delivery).
@@ -39,6 +41,16 @@ const _paymentMethods = [
   ('bank', 'Bank', Icons.account_balance_outlined),
 ];
 
+/// Line item for a sale — product/service with quantity.
+class _SaleLineItem {
+  final InventoryItem item;
+  int qty;
+
+  _SaleLineItem({required this.item, this.qty = 1});
+
+  num get total => (item.unitPrice ?? 0) * qty;
+}
+
 class _LogSaleSheetState extends State<LogSaleSheet> {
   final _amountCtrl = TextEditingController();
   final _descCtrl = TextEditingController();
@@ -50,15 +62,57 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
   String _customerName = '';
   String? _customerId;
 
+  /// Selected items from inventory — auto-calculates the total amount.
+  final List<_SaleLineItem> _selectedItems = [];
+
+  /// Whether to show the inventory selector.
+  bool _showItemSelector = false;
+
+  /// Search controller for the item selector — promoted to state field to
+  /// avoid being recreated on every parent rebuild.
+  final _itemSearchCtrl = TextEditingController();
+
   bool _saving = false;
   String? _error;
   bool _saved = false;
   String? _savedReceiptNumber;
 
+  num get _itemsTotal =>
+      _selectedItems.fold<num>(0, (sum, li) => sum + (li.item.unitPrice ?? 0) * li.qty);
+
+  void _updateAmountFromItems() {
+    if (_itemsTotal > 0) {
+      _amountCtrl.text = _itemsTotal.toStringAsFixed(0);
+    }
+  }
+
+  void _addItem(InventoryItem item) {
+    final existing = _selectedItems.where((li) => li.item.id == item.id).firstOrNull;
+    if (existing != null) {
+      existing.qty++;
+    } else {
+      _selectedItems.add(_SaleLineItem(item: item));
+    }
+    _showItemSelector = false;
+    _updateAmountFromItems();
+    setState(() {});
+  }
+
+  void _removeItem(int index) {
+    _selectedItems.removeAt(index);
+    if (_selectedItems.isEmpty) {
+      _amountCtrl.clear();
+    } else {
+      _updateAmountFromItems();
+    }
+    setState(() {});
+  }
+
   @override
   void dispose() {
     _amountCtrl.dispose();
     _descCtrl.dispose();
+    _itemSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -274,6 +328,153 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
 
           const SizedBox(height: 16),
 
+          // ── Select items from inventory ──
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Items',
+                        style: AppType.body(
+                            size: 11.5,
+                            weight: FontWeight.w600,
+                            color: c.textMuted)),
+                    GestureDetector(
+                      onTap: () => setState(() => _showItemSelector = !_showItemSelector),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: c.tealSurface,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _showItemSelector ? Icons.close : Icons.add,
+                              size: 12, color: c.teal
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              _showItemSelector ? 'Close' : 'Add from inventory',
+                              style: AppType.body(size: 11, weight: FontWeight.w600, color: c.teal),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                // Selected items
+                if (_selectedItems.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  ..._selectedItems.asMap().entries.map((entry) {
+                    final li = entry.value;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: c.bgInset,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: c.border),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(li.item.name,
+                                    style: AppType.body(size: 12.5, weight: FontWeight.w600, color: c.text),
+                                    maxLines: 1, overflow: TextOverflow.ellipsis),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'GHS ${li.item.unitPrice?.toStringAsFixed(0) ?? '0'} × ${li.qty}',
+                                  style: AppType.body(size: 11, color: c.textMuted),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              GestureDetector(
+                                onTap: () {
+                                  if (li.qty > 1) {
+                                    li.qty--;
+                                    _updateAmountFromItems();
+                                    setState(() {});
+                                  }
+                                },
+                                child: Container(
+                                  width: 26, height: 26,
+                                  decoration: BoxDecoration(
+                                    color: c.bgElevated,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: c.border),
+                                  ),
+                                  child: Icon(Icons.remove, size: 14, color: c.textMuted),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text('${li.qty}',
+                                  style: AppType.body(size: 13, weight: FontWeight.w700, color: c.text)),
+                              const SizedBox(width: 6),
+                              GestureDetector(
+                                onTap: () {
+                                  li.qty++;
+                                  _updateAmountFromItems();
+                                  setState(() {});
+                                },
+                                child: Container(
+                                  width: 26, height: 26,
+                                  decoration: BoxDecoration(
+                                    color: c.bgElevated,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(color: c.border),
+                                  ),
+                                  child: Icon(Icons.add, size: 14, color: c.textMuted),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              GestureDetector(
+                                onTap: () => _removeItem(entry.key),
+                                child: Container(
+                                  width: 26, height: 26,
+                                  decoration: BoxDecoration(
+                                    color: c.roseSurface,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Icon(Icons.close, size: 12, color: c.rose),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                  if (_itemsTotal > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text('Total: GHS ${_itemsTotal.round()}',
+                          style: AppType.body(size: 12, weight: FontWeight.w700, color: c.teal)),
+                    ),
+                ],
+                // Inventory selector (togglable)
+                if (_showItemSelector) ...[
+                  const SizedBox(height: 8),
+                  _buildItemSelector(c),
+                ],
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
           // Payment method chips
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -435,6 +636,9 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
             ),
           ),
 
+          // ── Jump to full tool ──
+          _SaleNavFooter(context),
+
           if (_error != null) ...[
             const SizedBox(height: 14),
             Padding(
@@ -480,6 +684,193 @@ class _LogSaleSheetState extends State<LogSaleSheet> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _SaleNavFooter(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Icon(Icons.open_in_new, size: 10, color: c.textFaint),
+              const SizedBox(width: 4),
+              Text('GO TO FULL TOOL',
+                  style: AppType.body(size: 9, weight: FontWeight.w700, color: c.textFaint)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          GestureDetector(
+            onTap: () {
+              Navigator.of(context)
+                ..pop()
+                ..push(MaterialPageRoute(builder: (_) => const ReceiptsScreen()));
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: c.bgInset,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: c.border),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32, height: 32,
+                    decoration: BoxDecoration(
+                      color: c.tealSurface,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(Icons.receipt_long_outlined, size: 16, color: c.tealDeep),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('All receipts & sales',
+                            style: AppType.body(size: 13, weight: FontWeight.w600, color: c.text)),
+                        Text('Review, search, export',
+                            style: AppType.body(size: 11, color: c.textMuted)),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: 24, height: 24,
+                    decoration: BoxDecoration(
+                      color: c.tealSurface,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Icon(Icons.arrow_forward_ios, size: 10, color: c.tealDeep),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildItemSelector(AppColorsX c) {
+    final state = context.watch<AppState>();
+    final inventory = state.inventory;
+
+    return StatefulBuilder(
+      builder: (ctx, setLocalState) {
+        final query = _itemSearchCtrl.text.trim().toLowerCase();
+        final filtered = query.isEmpty
+            ? inventory.take(8).toList()
+            : inventory.where((item) =>
+                item.name.toLowerCase().contains(query) ||
+                (item.sku?.toLowerCase().contains(query) ?? false)
+            ).take(8).toList();
+
+        return Container(
+          decoration: BoxDecoration(
+            color: c.bgElevated,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: c.border),
+            boxShadow: AppShadows.card,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Search field
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: TextField(
+                  controller: _itemSearchCtrl,
+                  autofocus: true,
+                  style: AppType.body(size: 13, color: c.text),
+                  decoration: InputDecoration(
+                    hintText: 'Search products & services…',
+                    hintStyle: AppType.body(size: 13, color: c.textFaint),
+                    prefixIcon: Icon(Icons.search, size: 16, color: c.textFaint),
+                    filled: true,
+                    fillColor: c.bgInset,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide.none,
+                    ),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  onChanged: (_) => setLocalState(() {}),
+                ),
+              ),
+              if (filtered.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('No items found',
+                      style: AppType.body(size: 13, color: c.textMuted)),
+                )
+              else
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 200),
+                  child: ListView(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.zero,
+                    children: filtered.map((item) {
+                      final alreadySelected = _selectedItems.any((li) => li.item.id == item.id);
+                      return InkWell(
+                        onTap: alreadySelected ? null : () => _addItem(item),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: item != filtered.last
+                              ? BoxDecoration(
+                                  border: Border(bottom: BorderSide(color: c.border, width: 0.5)))
+                              : null,
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 32, height: 32,
+                                decoration: BoxDecoration(
+                                  color: !item.isGoods ? c.tealSurface : c.navySurface,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Icon(
+                                  !item.isGoods ? Icons.miscellaneous_services_outlined : Icons.inventory_2_outlined,
+                                  size: 14, color: !item.isGoods ? c.teal : c.navy,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(item.name,
+                                        style: AppType.body(size: 12.5, weight: FontWeight.w600, color: c.text),
+                                        maxLines: 1, overflow: TextOverflow.ellipsis),
+                                    const SizedBox(height: 1),
+                                    Text(
+                                      item.isGoods
+                                          ? 'GHS ${item.unitPrice?.toStringAsFixed(0) ?? '0'} · ${item.currentStock} in stock'
+                                          : 'GHS ${item.unitPrice?.toStringAsFixed(0) ?? '0'} · Service',
+                                      style: AppType.body(size: 10.5, color: c.textMuted),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (alreadySelected)
+                                Icon(Icons.check_circle, size: 16, color: c.green)
+                              else
+                                Icon(Icons.add_circle_outline, size: 16, color: c.teal),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 

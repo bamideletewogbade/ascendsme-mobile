@@ -10,7 +10,7 @@ import 'tools/staff_screen.dart';
 import 'tools/subscription_screen.dart';
 import 'tools/shop_screen.dart';
 import 'tools/booking_screen.dart';
-import 'tools/cash_flow_screen.dart';
+import 'finance_screen.dart';
 import 'tools/documents_screen.dart';
 import 'tools/crm_screen.dart';
 import 'tools/project_screen.dart';
@@ -46,13 +46,13 @@ class _ToolsScreenState extends State<ToolsScreen> {
   /// The canonical tool list matching the user's requested tools.
   /// Tier requirements: 'free' (always), 'lite', 'plus', 'elite'.
   static const _allTools = [
-    _ToolEntry('invoicing', 'Invoicing', Icons.description_outlined, 'Create & send invoices, track payments', 'free'),
-    _ToolEntry('booking', 'Booking Portal', Icons.calendar_today_outlined, 'Client appointments & scheduling', 'free'),
-    _ToolEntry('documents', 'Document Vault', Icons.folder_outlined, 'Upload & manage business documents', 'lite'),
-    _ToolEntry('shop', 'My Shop', Icons.storefront_outlined, 'Online storefront & order management', 'lite'),
+    _ToolEntry('invoicing', 'Invoicing', Icons.description_outlined, 'Proformas, invoices, receipts & payments', 'free'),
+    _ToolEntry('finance', 'Finance & Accounting', Icons.account_balance_wallet_outlined, 'Cash flow, expenses & reports', 'free'),
     _ToolEntry('crm', 'CRM', Icons.people_outline, 'Customer management & insights', 'free'),
-    _ToolEntry('finance', 'Finance & Accounting', Icons.account_balance_wallet_outlined, 'Cash flow, receipts, expense tracking', 'free'),
+    _ToolEntry('booking', 'Booking Portal', Icons.calendar_today_outlined, 'Client appointments & scheduling', 'free'),
     _ToolEntry('inventory', 'Inventory', Icons.inventory_2_outlined, 'Stock tracking & low-stock alerts', 'lite'),
+    _ToolEntry('shop', 'My Shop', Icons.storefront_outlined, 'Online storefront & order management', 'lite'),
+    _ToolEntry('documents', 'Document Vault', Icons.folder_outlined, 'Upload & manage business documents', 'lite'),
     _ToolEntry('projects', 'Project Management', Icons.view_kanban_outlined, 'Task boards & milestone tracking', 'plus'),
     _ToolEntry('staff', 'HRM & Staff', Icons.people_outline, 'Team management & payroll', 'plus'),
   ];
@@ -103,7 +103,7 @@ class _ToolsScreenState extends State<ToolsScreen> {
         'booking'   => MaterialPageRoute(builder: (_) => const BookingScreen()),
         'documents' => MaterialPageRoute(builder: (_) => const DocumentsScreen()),
         'crm'       => MaterialPageRoute(builder: (_) => const CrmScreen()),
-        'finance'   => MaterialPageRoute(builder: (_) => const CashFlowForecastScreen()),
+        'finance'   => MaterialPageRoute(builder: (_) => const FinanceScreen(showBackButton: true)),
         'projects'  => MaterialPageRoute(builder: (_) => const ProjectScreen()),
         _           => null,
       };
@@ -124,6 +124,7 @@ class _ToolsScreenState extends State<ToolsScreen> {
             tier: business.tier,
             tierCode: tierCode,
             verified: business.verified,
+            logoUrl: business.logoUrl,
             onAvatarTap: widget.onOpenDrawer,
             onSettingsTap: () => Navigator.push(
               context,
@@ -269,6 +270,7 @@ class _SearchBar extends StatelessWidget {
 class _IdentityCard extends StatelessWidget {
   final String initials, name, handle, industry, tier, tierCode;
   final bool verified;
+  final String? logoUrl;
   final VoidCallback? onAvatarTap, onSettingsTap;
 
   const _IdentityCard({
@@ -279,6 +281,7 @@ class _IdentityCard extends StatelessWidget {
     required this.tier,
     required this.tierCode,
     required this.verified,
+    this.logoUrl,
     this.onAvatarTap,
     this.onSettingsTap,
   });
@@ -297,7 +300,7 @@ class _IdentityCard extends StatelessWidget {
               children: [
                 GestureDetector(
                   onTap: onAvatarTap,
-                  child: AppAvatar(initials, size: 52),
+                  child: AppAvatar(initials, size: 52, imageUrl: logoUrl),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -329,9 +332,10 @@ class _IdentityCard extends StatelessWidget {
             const SizedBox(height: 14),
             Container(height: 1, color: c.border),
             const SizedBox(height: 14),
+            // Row with Flexible on the right side to prevent overflow on small screens
+            // while keeping plan pill + verified badge on the left and industry on the right
             Row(
               children: [
-                // Plan pill — prominently shows the current plan
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
@@ -353,13 +357,18 @@ class _IdentityCard extends StatelessWidget {
                 if (verified)
                   AppPill('Verified', tone: PillTone.green, icon: 'check_circle', small: true),
                 const Spacer(),
-                Row(
-                  children: [
-                    Icon(Icons.business, size: 14, color: c.textFaint),
-                    const SizedBox(width: 4),
-                    Text(industry,
-                        style: AppType.body(size: 12, color: c.textMuted)),
-                  ],
+                Flexible(
+                  child: Row(
+                    children: [
+                      Icon(Icons.business, size: 14, color: c.textFaint),
+                      const SizedBox(width: 4),
+                      Flexible(
+                        child: Text(industry,
+                            style: AppType.body(size: 12, color: c.textMuted),
+                            overflow: TextOverflow.ellipsis),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -496,26 +505,30 @@ class _ExploreToolsCard extends StatelessWidget {
             const SizedBox(height: 14),
             Row(
               children: [
-                AppBtn('View plans',
-                    variant: BtnVariant.primary,
-                    fontSize: 12.5,
-                    icon: 'crown',
-                    onTap: onUpgrade),
+                Expanded(
+                  child: AppBtn('View plans',
+                      variant: BtnVariant.primary,
+                      fontSize: 12.5,
+                      icon: 'crown',
+                      onTap: onUpgrade),
+                ),
                 const SizedBox(width: 10),
-                AppBtn('Suggest a tool',
-                    variant: BtnVariant.secondary,
-                    fontSize: 12.5,
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Tool suggestions — coming soon.',
-                              style: AppType.body(size: 13, color: Colors.white)),
-                          backgroundColor: c.navyDeep,
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      );
-                    }),
+                Expanded(
+                  child: AppBtn('Suggest a tool',
+                      variant: BtnVariant.secondary,
+                      fontSize: 12.5,
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Tool suggestions — coming soon.',
+                                style: AppType.body(size: 13, color: Colors.white)),
+                            backgroundColor: c.navyDeep,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        );
+                      }),
+                ),
               ],
             ),
           ],

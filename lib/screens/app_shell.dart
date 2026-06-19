@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../core/models.dart';
 import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 import '../services/sync_service.dart';
@@ -14,12 +15,14 @@ import 'tools/subscription_screen.dart';
 import 'tools/staff_screen.dart';
 import 'tools/shop_screen.dart';
 import 'sheets/profile_drawer.dart';
+import '../core/onboarding_wizard.dart';
 import 'sheets/notifications_sheet.dart';
 import 'sheets/new_invoice_sheet.dart';
+import 'sheets/create_proforma_sheet.dart';
 import 'sheets/log_expense_sheet.dart';
 import 'sheets/log_sale_sheet.dart';
 import 'tools/booking_screen.dart';
-import 'tools/cash_flow_screen.dart';
+import 'finance_screen.dart';
 
 class AppShell extends StatelessWidget {
   const AppShell({super.key});
@@ -38,10 +41,33 @@ class _AppShellBody extends StatefulWidget {
 
 class _AppShellBodyState extends State<_AppShellBody> {
   bool _drawerOpen = false;
+  bool _showOnboarding = false;
 
-  void _openNotifications() => _showSheet(context, const NotificationsSheet());
+  @override
+  void initState() {
+    super.initState();
+    _checkOnboarding();
+  }
+
+  void _checkOnboarding() {
+    OnboardingWizard.isCompleted().then((done) {
+      if (mounted && !done) {
+        setState(() => _showOnboarding = true);
+      }
+    });
+  }
+
+  void _openNotifications() => _showSheet(context, NotificationsSheet(
+    onAction: (id) {
+      Navigator.pop(context);
+      // Close the sheet, then handle the action
+      Future.microtask(() => _handleAction(context, id));
+    },
+  ));
   void _openNewInvoice({VoidCallback? onSent}) =>
       _showSheet(context, NewInvoiceSheet(onSent: onSent));
+  void _openNewProforma() =>
+      _showSheet(context, const CreateProformaSheet());
   void _openAI([String? prompt]) {
     if (prompt != null && prompt.isNotEmpty) {
       context.read<AppState>().setAiPrompt(prompt);
@@ -58,8 +84,39 @@ class _AppShellBodyState extends State<_AppShellBody> {
     );
   }
 
+  /// Build a context-aware follow-up prompt that includes expiring quote info
+  /// when relevant, so the AI can reference urgency in its draft message.
+  String _buildFollowUpPrompt(BuildContext ctx) {
+    final state = ctx.read<AppState>();
+    final now = DateTime.now();
+    final expiringSoon = state.invoices
+        .where((i) =>
+            i.isProforma &&
+            i.validUntil != null &&
+            i.validUntil!.isAfter(now) &&
+            i.validUntil!.difference(now).inDays <= 7)
+        .toList();
+
+    final base = 'I have overdue invoices. Draft a polite, professional WhatsApp '
+        'follow-up reminder I can send to the customer. Keep it warm and brief.';
+
+    if (expiringSoon.isEmpty) return base;
+
+    final total = expiringSoon.fold<num>(0, (s, i) => s + i.amount);
+    final count = expiringSoon.length;
+    final names = expiringSoon.map((i) => i.customer).toSet().join(', ');
+
+    return 'I have overdue invoices. Also, $count proforma${count == 1 ? '' : 's'} '
+        'worth ${formatGHS(total)} expire${count == 1 ? 's' : ''} soon '
+        '(customers: $names). Draft a polite professional WhatsApp follow-up '
+        'that addresses both — mention the urgency of the expiring proforma${count == 1 ? '' : 's'} '
+        'so the customer knows to respond before the deadline. Keep it warm and brief.';
+  }
+
   void _handleAction(BuildContext ctx, String id) {
     switch (id) {
+      case 'quote':
+        _openNewProforma();
       case 'invoice':
       case 'newInvoice':
         _openNewInvoice();
@@ -68,8 +125,7 @@ class _AppShellBodyState extends State<_AppShellBody> {
       case 'askAI':
         _openAI();
       case 'followup':
-        _openAI('I have overdue invoices. Draft a polite, professional WhatsApp '
-            'follow-up reminder I can send to the customer. Keep it warm and brief.');
+        _openAI(_buildFollowUpPrompt(ctx));
       case 'expense':
         LogExpenseSheet.show(ctx);
       case 'sale':
@@ -78,6 +134,8 @@ class _AppShellBodyState extends State<_AppShellBody> {
         _pushTool(ctx, 'booking');
       case 'inventory':
         _pushTool(ctx, 'inventory');
+      case 'invoicing':
+        _pushTool(ctx, 'invoicing');
       case 'subscription':
         _pushTool(ctx, 'subscription');
       case 'staff':
@@ -95,6 +153,8 @@ class _AppShellBodyState extends State<_AppShellBody> {
         LogExpenseSheet.show(ctx);
       case 'tools':
         context.read<AppState>().setTab(AppTab.tools);
+      case 'rec_convert_expiring':
+        _openAI(_buildFollowUpPrompt(ctx));
       case 'rec_verify':
         context.read<AppState>().setTab(AppTab.profile);
       case 'rec_all_clear':
@@ -154,7 +214,9 @@ class _AppShellBodyState extends State<_AppShellBody> {
                         onAction: (id) => _handleAction(context, id),
                         onOpenDrawer: () => setState(() => _drawerOpen = true),
                       ),
-                      const CashFlowForecastScreen(),
+                      FinanceScreen(
+                        onOpenDrawer: () => setState(() => _drawerOpen = true),
+                      ),
                       ToolsScreen(
                         onOpenDrawer: () => setState(() => _drawerOpen = true),
                       ),
@@ -221,6 +283,12 @@ class _AppShellBodyState extends State<_AppShellBody> {
               ),
             ),
           ),
+
+          // ── Onboarding wizard overlay ──
+          if (_showOnboarding)
+            OnboardingWizard(
+              onDismissed: () => setState(() => _showOnboarding = false),
+            ),
 
           // ── Profile drawer ─────────────────
           ProfileDrawer(

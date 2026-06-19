@@ -69,8 +69,20 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     final state = context.watch<AppState>();
     final expenses = state.expenseList;
 
-    // Apply filters
+    // Compute period bounds for filtering
+    final now = DateTime.now();
+    final periodEnd = DateTime(now.year, now.month + 1, 1);
+    final periodMonths = state.effectivePeriodMonths;
+    final periodStart = periodMonths <= 0
+        ? DateTime(now.year, 1, 1)
+        : DateTime(now.year, now.month - periodMonths + 1, 1);
+
+    // Apply filters (period + search + category)
     final filtered = expenses.where((e) {
+      // Period filter: only show expenses within the selected period
+      if (e.expenseDate.isBefore(periodStart) || !e.expenseDate.isBefore(periodEnd)) {
+        return false;
+      }
       if (_categoryFilter != 'All' && e.category != _categoryFilter) return false;
       if (_searchQuery.isNotEmpty) {
         final q = _searchQuery.toLowerCase();
@@ -92,68 +104,73 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
               'Expenses',
               onBack: () => Navigator.pop(context),
             ),
-            // Search bar
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-              child: Container(
-                height: 42,
-                decoration: BoxDecoration(
-                  color: c.bgInset,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: c.border),
-                ),
-                child: TextField(
-                  controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _searchQuery = v),
-                  style: AppType.body(size: 13, color: c.text),
-                  decoration: InputDecoration(
-                    hintText: 'Search expenses…',
-                    hintStyle: AppType.body(size: 13, color: c.textFaint),
-                    prefixIcon:
-                        Icon(Icons.search, size: 18, color: c.textFaint),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? GestureDetector(
-                            onTap: () {
-                              _searchCtrl.clear();
-                              setState(() => _searchQuery = '');
-                            },
-                            child: Icon(Icons.close,
-                                size: 16, color: c.textFaint),
-                          )
-                        : null,
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding:
-                        const EdgeInsets.symmetric(vertical: 12),
-                  ),
+          // ── Period pills ──
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: AppPeriodSelector(),
+          ),
+          // ── Search bar ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+            child: Container(
+              height: 42,
+              decoration: BoxDecoration(
+                color: c.bgInset,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: c.border),
+              ),
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: (v) => setState(() => _searchQuery = v),
+                style: AppType.body(size: 13, color: c.text),
+                decoration: InputDecoration(
+                  hintText: 'Search expenses…',
+                  hintStyle: AppType.body(size: 13, color: c.textFaint),
+                  prefixIcon:
+                      Icon(Icons.search, size: 18, color: c.textFaint),
+                  suffixIcon: _searchQuery.isNotEmpty
+                      ? GestureDetector(
+                          onTap: () {
+                            _searchCtrl.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                          child: Icon(Icons.close,
+                              size: 16, color: c.textFaint),
+                        )
+                      : null,
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 12),
                 ),
               ),
             ),
-            // Category filter chips
-            SizedBox(
-              height: 38,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                children: [
-                  _FilterChip(
-                    label: 'All',
-                    selected: _categoryFilter == 'All',
-                    onTap: () => setState(() => _categoryFilter = 'All'),
-                  ),
-                  ...kManualExpenseCategories.map((cat) => Padding(
-                        padding: const EdgeInsets.only(left: 6),
-                        child: _FilterChip(
-                          label: cat,
-                          selected: _categoryFilter == cat,
-                          onTap: () =>
-                              setState(() => _categoryFilter = cat),
-                        ),
-                      )),
-                ],
-              ),
+          ),
+          // ── Category filter chips ──
+          SizedBox(
+            height: 38,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              children: [
+                _FilterChip(
+                  label: 'All',
+                  selected: _categoryFilter == 'All',
+                  onTap: () => setState(() => _categoryFilter = 'All'),
+                ),
+                ...kManualExpenseCategories.map((cat) => Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: _FilterChip(
+                        label: cat,
+                        selected: _categoryFilter == cat,
+                        onTap: () =>
+                            setState(() => _categoryFilter = cat),
+                      ),
+                    )),
+              ],
             ),
-            const SizedBox(height: 8),
+          ),
+          const SizedBox(height: 8),
             // Content
             Expanded(
               child: RefreshIndicator(
@@ -301,8 +318,8 @@ class _CategoryBreakdown extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text('Category breakdown',
-                style: AppType.body(
-                    size: 14, weight: FontWeight.w700, color: c.text)),
+                style: AppType.heading(
+                    size: 14, color: c.text)),
             const SizedBox(height: 14),
             // Pie chart
             SizedBox(
@@ -540,10 +557,8 @@ class _ListBody extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(_monthLabel(key),
-                    style: AppType.body(
-                        size: 14,
-                        weight: FontWeight.w700,
-                        color: c.text)),
+                    style: AppType.heading(
+                        size: 14, color: c.text)),
                 const SizedBox(width: 6),
                 Text('· ${groups[key]!.length}',
                     style: AppType.body(
@@ -826,6 +841,62 @@ class _ExpenseDetailSheetState extends State<ExpenseDetailSheet> {
                         size: 14, color: c.textMuted),
                     textAlign: TextAlign.center),
                 const SizedBox(height: 20),
+
+                // Receipt image
+                if (e.attachmentUrl != null) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      width: double.infinity,
+                      height: 160,
+                      child: Image.network(
+                        e.attachmentUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => Container(
+                          height: 160,
+                          decoration: BoxDecoration(
+                            color: c.bgInset,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.image_outlined,
+                                    size: 20, color: c.textFaint),
+                                const SizedBox(width: 6),
+                                Text('Receipt image',
+                                    style: AppType.body(
+                                        size: 12, color: c.textFaint)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        loadingBuilder: (_, child, progress) {
+                          if (progress == null) return child;
+                          return Container(
+                            height: 160,
+                            decoration: BoxDecoration(
+                              color: c.bgInset,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Center(
+                              child: SizedBox(
+                                width: 24, height: 24,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor:
+                                      AlwaysStoppedAnimation(c.teal),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
 
                 // Detail rows
                 _detailRow(c, 'Category', e.category),

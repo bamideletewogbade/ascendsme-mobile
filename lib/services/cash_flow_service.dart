@@ -207,18 +207,25 @@ class CashFlowService {
       final liquidityGap = projectedCash30Days - safetyLine;
       final isAtRisk = liquidityGap < 0;
 
-      // 5. Daily forecast
+      // 5. Daily forecast — compute two projections:
+      //    - projected: baseline (current cash + receivables - costs)
+      //    - withPipeline: same baseline plus gradual pipeline conversion
       final dailyForecast = <DailyForecastPoint>[];
       double runningBalance = currentCash;
+      double runningWithPipeline = currentCash + pipelineValue;
       final dailyInflow = projectedInflows / 30;
       final dailyOutflow = projectedOutflows / 30;
+      final dailyPipelineInflow = pipelineValue / 30;
       for (int i = 0; i <= 30; i++) {
         final d = DateTime(now.year, now.month, now.day + i);
-        if (i > 0) runningBalance += dailyInflow - dailyOutflow;
+        if (i > 0) {
+          runningBalance += dailyInflow - dailyOutflow;
+          runningWithPipeline += dailyInflow + dailyPipelineInflow - dailyOutflow;
+        }
         dailyForecast.add(DailyForecastPoint(
           date: '${d.month}/${d.day}',
           projected: runningBalance,
-          withPipeline: runningBalance,
+          withPipeline: runningWithPipeline,
           safetyLine: safetyLine,
         ));
       }

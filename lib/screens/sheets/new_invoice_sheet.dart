@@ -6,22 +6,29 @@ import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../core/widgets/customer_selector.dart';
 import '../../core/widgets/inventory_selector.dart';
-import '../../services/ai_service.dart';
 import '../../services/app_logger.dart';
 import '../../services/crm_service.dart';
 import '../../services/supabase_service.dart';
 import '../../state/app_state.dart';
+import '../tools/invoices_screen.dart';
+import '../tools/inventory_screen.dart';
 
-/// Bottom sheet for creating a new invoice.
+/// Bottom sheet for creating a new invoice (or a proforma when
+/// [isProformaOnly] is true).
 ///
 /// v2: Wires CustomerSelector for CRM linkage and inventory items as line
 /// items with quantities. Selected customer + products flow into
 /// [SupabaseService.createInvoice] so invoices are always linked to a
 /// customer row and their line items are structured for web's PDF generator.
+///
+/// Use [CreateProformaSheet] for the dedicated proforma creation flow;
+/// it is a thin wrapper around this sheet with `isProformaOnly: true`.
 class NewInvoiceSheet extends StatefulWidget {
   final VoidCallback? onSent;
+  /// When true, renders as a dedicated proforma creation flow.
+  final bool isProformaOnly;
 
-  const NewInvoiceSheet({super.key, this.onSent});
+  const NewInvoiceSheet({super.key, this.onSent, this.isProformaOnly = false});
 
   @override
   State<NewInvoiceSheet> createState() => _NewInvoiceSheetState();
@@ -34,8 +41,10 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
   String _customerName = '';
   String? _customerId;
   Customer? _selectedCustomer;
+  String _customerEmail = '';
+  String _customerPhone = '';
 
-  // ── Invoice description (for AI draft + fallback) ──
+  // ── Invoice description ──
   final _descCtrl = TextEditingController();
 
   // ── Manual amount fallback (when no inventory items) ──
@@ -43,12 +52,6 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
 
   // ── Line items from inventory ──
   final List<_SelectedItem> _selectedItems = [];
-
-  // ── AI ──
-  bool _aiParsing = false;
-
-  // ── Proforma toggle ──
-  bool _isProforma = false;
 
   // ── Send state ──
   bool _sending = false;
@@ -74,29 +77,6 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
     _descCtrl.dispose();
     _amountCtrl.dispose();
     super.dispose();
-  }
-
-  // ── AI smart draft ──
-  Future<void> _aiDraft() async {
-    final desc = _descCtrl.text.trim();
-    if (desc.isEmpty) return;
-    setState(() => _aiParsing = true);
-    final result = await AIService.parseInvoice(desc);
-    if (mounted) {
-      setState(() {
-        _aiParsing = false;
-        if (result != null) {
-          final customer = result['customer'] as String?;
-          if (customer != null && customer.isNotEmpty) {
-            _customerName = customer;
-          }
-          final amount = result['amount'];
-          if (amount != null) {
-            _amountCtrl.text = amount.toString();
-          }
-        }
-      });
-    }
   }
 
   void _onProductSelected(InventoryItem product) {
@@ -180,7 +160,7 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
               }).toList()
           : <Map<String, dynamic>>[];
 
-      final validUntil = _isProforma
+      final validUntil = widget.isProformaOnly
           ? DateTime.now().add(const Duration(days: 14))
           : null;
       final row = await SupabaseService.createInvoice(
@@ -189,8 +169,9 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
         customerId: _customerId,
         totalAmount: amount,
         description: _descCtrl.text.trim(),
+        customerEmail: _customerEmail.trim().isNotEmpty ? _customerEmail.trim() : null,
         lineItems: lineItems.isNotEmpty ? lineItems : null,
-        isProforma: _isProforma,
+        isProforma: widget.isProformaOnly,
         validUntil: validUntil,
       );
 
@@ -247,6 +228,10 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
     }
   }
 
+  // ── Customer email + phone callbacks ──
+  void _onEmailChanged(String v) => _customerEmail = v;
+  void _onPhoneChanged(String v) => _customerPhone = v;
+
   String _friendlyError(Object e) {
     final msg = e.toString();
     final match = RegExp(r'message:\s*([^,)]+)').firstMatch(msg);
@@ -274,15 +259,16 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
             descCtrl: _descCtrl,
             amountCtrl: _amountCtrl,
             selectedItems: _selectedItems,
-            aiParsing: _aiParsing,
             totalAmount: _totalAmount,
+            customerEmail: _customerEmail,
+            customerPhone: _customerPhone,
             onCustomerChanged: _onCustomerChanged,
-            onAiDraft: _aiDraft,
             onProductSelected: _onProductSelected,
             onUpdateQuantity: _updateItemQuantity,
+            onEmailChanged: _onEmailChanged,
+            onPhoneChanged: _onPhoneChanged,
             onNext: () => setState(() => _step = 1),
-            isProforma: _isProforma,
-            onToggleProforma: (v) => setState(() => _isProforma = v),
+            isProformaOnly: widget.isProformaOnly,
           ),
         1 => _PreviewStep(
             customer: _customerName,
@@ -291,6 +277,7 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
             selectedItems: _selectedItems,
             sending: _sending,
             error: _sendError,
+            isProformaOnly: widget.isProformaOnly,
             onBack: _sending
                 ? null
                 : () => setState(() {
@@ -301,6 +288,7 @@ class _NewInvoiceSheetState extends State<NewInvoiceSheet> {
           ),
         _ => _SentStep(
             invoiceNumber: _createdInvoiceNumber,
+            isProformaOnly: widget.isProformaOnly,
             onClose: () => Navigator.pop(context),
           ),
       },
@@ -326,15 +314,16 @@ class _DetailsStep extends StatelessWidget {
   final Customer? selectedCustomer;
   final TextEditingController descCtrl, amountCtrl;
   final List<_SelectedItem> selectedItems;
-  final bool aiParsing;
   final num totalAmount;
+  final String customerEmail;
+  final String customerPhone;
   final void Function(String, Customer?) onCustomerChanged;
-  final VoidCallback onAiDraft;
   final void Function(InventoryItem) onProductSelected;
   final void Function(int, int) onUpdateQuantity;
+  final void Function(String) onEmailChanged;
+  final void Function(String) onPhoneChanged;
   final VoidCallback onNext;
-  final bool isProforma;
-  final void Function(bool) onToggleProforma;
+  final bool isProformaOnly;
 
   const _DetailsStep({
     required this.customerName,
@@ -344,15 +333,16 @@ class _DetailsStep extends StatelessWidget {
     required this.descCtrl,
     required this.amountCtrl,
     required this.selectedItems,
-    required this.aiParsing,
     required this.totalAmount,
+    required this.customerEmail,
+    required this.customerPhone,
     required this.onCustomerChanged,
-    required this.onAiDraft,
     required this.onProductSelected,
     required this.onUpdateQuantity,
+    required this.onEmailChanged,
+    required this.onPhoneChanged,
     required this.onNext,
-    required this.isProforma,
-    required this.onToggleProforma,
+    this.isProformaOnly = false,
   });
 
   @override
@@ -366,7 +356,7 @@ class _DetailsStep extends StatelessWidget {
           const SheetHandle(),
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
-            child: Text('New invoice',
+            child: Text(isProformaOnly ? 'New proforma' : 'New invoice',
                 style: AppType.heading(size: 20, color: c.text)),
           ),
 
@@ -381,6 +371,28 @@ class _DetailsStep extends StatelessWidget {
               initialCustomer: selectedCustomer,
               onChanged: onCustomerChanged,
             ),
+          ),
+          const SizedBox(height: 14),
+
+          // ── Client email ──
+          _ContactField(
+            label: 'Client email',
+            hint: 'Email (optional)',
+            icon: Icons.email_outlined,
+            keyboardType: TextInputType.emailAddress,
+            initialValue: customerEmail,
+            onChanged: onEmailChanged,
+          ),
+          const SizedBox(height: 14),
+
+          // ── Client phone ──
+          _ContactField(
+            label: 'Client phone',
+            hint: 'Phone (optional)',
+            icon: Icons.phone_outlined,
+            keyboardType: TextInputType.phone,
+            initialValue: customerPhone,
+            onChanged: onPhoneChanged,
           ),
           const SizedBox(height: 16),
 
@@ -492,140 +504,51 @@ class _DetailsStep extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // Proforma toggle
+          // ── Notes / description ──
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: GestureDetector(
-              onTap: () => onToggleProforma(!isProforma),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: isProforma ? c.navySurface : c.bgInset,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: isProforma ? c.navyTint : c.border,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Notes',
+                    style: AppType.body(
+                        size: 11.5, weight: FontWeight.w600, color: c.textMuted)),
+                const SizedBox(height: 6),
+                Container(
+                  decoration: BoxDecoration(
+                    color: c.bg,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: c.border),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: TextField(
+                    controller: descCtrl,
+                    style: AppType.body(size: 13, color: c.text),
+                    decoration: InputDecoration(
+                      hintText: 'Optional — add a note for this invoice',
+                      hintStyle:
+                          AppType.body(size: 12, color: c.textFaint),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                    maxLines: 2,
                   ),
                 ),
-                child: Row(
-                  children: [
-                    Icon(
-                      isProforma
-                          ? Icons.description_rounded
-                          : Icons.description_outlined,
-                      size: 18,
-                      color: isProforma ? c.navy : c.textMuted,
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Create as proforma quote',
-                              style: AppType.body(
-                                  size: 13,
-                                  weight: FontWeight.w600,
-                                  color: isProforma ? c.navy : c.text)),
-                          Text(
-                              isProforma
-                                  ? 'Client can review before you send the real invoice'
-                                  : 'Send a draft quote for client approval first',
-                              style: AppType.body(
-                                  size: 11.5, color: c.textMuted)),
-                        ],
-                      ),
-                    ),
-                    Icon(
-                      isProforma
-                          ? Icons.check_circle_rounded
-                          : Icons.circle_outlined,
-                      size: 20,
-                      color: isProforma ? c.navy : c.textFaint,
-                    ),
-                  ],
-                ),
-              ),
+              ],
             ),
           ),
           const SizedBox(height: 16),
 
-          // AI smart draft
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Container(
-              decoration: BoxDecoration(
-                color: c.tealSurface,
-                borderRadius: BorderRadius.circular(14),                    border: Border.all(color: c.tealSurfaceStrong),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
-                    child: Row(
-                      children: [
-                        Icon(Icons.auto_awesome, size: 14, color: c.navyDeep),
-                        const SizedBox(width: 6),
-                        Text('AI smart draft',
-                            style: AppType.body(
-                                size: 12,
-                                weight: FontWeight.w700,
-                                color: c.navyDeep)),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    child: TextField(
-                      controller: descCtrl,
-                      style: AppType.body(size: 13, color: c.text),
-                      decoration: InputDecoration(
-                        hintText:
-                            'e.g. "Invoice Kente Co. GHS 2,400 for fabric"',
-                        hintStyle:
-                            AppType.body(size: 12, color: c.textFaint),
-                        border: InputBorder.none,
-                        isDense: true,
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      maxLines: 2,
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
-                    child: GestureDetector(
-                      onTap: aiParsing ? null : onAiDraft,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 7),
-                        decoration: BoxDecoration(
-                      color: c.tealDeep,
-                      borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: aiParsing
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                    strokeWidth: 2, color: Colors.white))
-                            : Text('Fill from description',
-                                style: AppType.body(
-                                    size: 12,
-                                    weight: FontWeight.w600,
-                                    color: Colors.white)),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
+          // ── Jump to full tool ──
+          _NavFooter(context: context, isProformaOnly: isProformaOnly),
           const SizedBox(height: 20),
 
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: AppBtn(
-              'Preview invoice →',
+              isProformaOnly ? 'Preview proforma →' : 'Preview invoice →',
               full: true,
               onTap: totalAmount > 0 && customerName.isNotEmpty
                   ? onNext
@@ -667,8 +590,7 @@ class _SelectedItemRow extends StatelessWidget {
                         size: 13, weight: FontWeight.w600, color: c.text),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
-                if (item.product.unitPrice != null)
-                  Text(formatGHS(item.product.unitPrice!) + ' each',
+                if (item.product.unitPrice != null)                      Text('${formatGHS(item.product.unitPrice!)} each',
                       style: AppType.body(size: 11, color: c.textMuted)),
               ],
             ),
@@ -737,6 +659,7 @@ class _PreviewStep extends StatelessWidget {
   final List<_SelectedItem> selectedItems;
   final bool sending;
   final String? error;
+  final bool isProformaOnly;
   final VoidCallback? onBack, onSend;
 
   const _PreviewStep({
@@ -746,6 +669,7 @@ class _PreviewStep extends StatelessWidget {
     required this.selectedItems,
     required this.sending,
     required this.error,
+    this.isProformaOnly = false,
     required this.onBack,
     required this.onSend,
   });
@@ -770,7 +694,7 @@ class _PreviewStep extends StatelessWidget {
                       color: onBack == null ? c.textFaint : c.text),
                 ),
                 const SizedBox(width: 12),
-                Text('Preview invoice',
+                Text(isProformaOnly ? 'Preview proforma' : 'Preview invoice',
                     style: AppType.heading(size: 18, color: c.text)),
               ],
             ),
@@ -900,7 +824,7 @@ class _PreviewStep extends StatelessWidget {
                       ),
                     ),
                   )
-                : AppBtn('Send invoice',
+                : AppBtn(isProformaOnly ? 'Create proforma' : 'Create invoice',
                     full: true, icon: 'north_east', onTap: onSend),
           ),
         ],
@@ -909,12 +833,172 @@ class _PreviewStep extends StatelessWidget {
   }
 }
 
+// ── Contact field widget ─────────────────────────────────────────────────────
+
+/// A compact text field row for optional client contact info (email or phone).
+/// Matches the web's in-form fields — visible, not hidden, so the user can
+/// fill them in one pass.
+class _ContactField extends StatelessWidget {
+  final String label;
+  final String hint;
+  final IconData icon;
+  final TextInputType keyboardType;
+  final String initialValue;
+  final ValueChanged<String> onChanged;
+
+  const _ContactField({
+    required this.label,
+    required this.hint,
+    required this.icon,
+    required this.keyboardType,
+    this.initialValue = '',
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label,
+              style: AppType.body(size: 11.5, weight: FontWeight.w600, color: c.textMuted)),
+          const SizedBox(height: 6),
+          Container(
+            height: 48,
+            decoration: BoxDecoration(
+              color: c.bg,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: c.border),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: TextField(
+              controller: TextEditingController.fromValue(
+                TextEditingValue(text: initialValue),
+              ),
+              keyboardType: keyboardType,
+              textInputAction: TextInputAction.next,
+              style: AppType.body(size: 14, color: c.text),
+              decoration: InputDecoration(
+                hintText: hint,
+                hintStyle: AppType.body(size: 13, color: c.textFaint),
+                prefixIcon: Icon(icon, size: 17, color: c.textFaint),
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              onChanged: onChanged,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Nav footer — jump to full tools ─────────────────────────────────────────
+
+Widget _NavFooter({required BuildContext context, required bool isProformaOnly}) {
+  final c = context.colors;
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 20),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.open_in_new, size: 10, color: c.textFaint),
+            const SizedBox(width: 4),
+            Text('GO TO FULL TOOL',
+                style: AppType.body(size: 9, weight: FontWeight.w700, color: c.textFaint)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.of(context)
+                    ..pop()
+                    ..push(MaterialPageRoute(builder: (_) => const InvoicesScreen()));
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: c.bgInset,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: c.border),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 28, height: 28,
+                        decoration: BoxDecoration(
+                          color: c.navySurface,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.description_outlined, size: 14, color: c.navy),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(isProformaOnly ? 'All invoices' : 'All invoices',
+                          style: AppType.body(size: 10, weight: FontWeight.w600, color: c.text),
+                          textAlign: TextAlign.center),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.of(context)
+                    ..pop()
+                    ..push(MaterialPageRoute(builder: (_) => const InventoryScreen()));
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: c.bgInset,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: c.border),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 28, height: 28,
+                        decoration: BoxDecoration(
+                          color: c.tealSurface,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(Icons.inventory_2_outlined, size: 14, color: c.tealDeep),
+                      ),
+                      const SizedBox(height: 4),
+                      Text('Inventory',
+                          style: AppType.body(size: 10, weight: FontWeight.w600, color: c.text),
+                          textAlign: TextAlign.center),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
 // ── Step 3: Sent ─────────────────────────────────────────────────────────────
 class _SentStep extends StatelessWidget {
   final String? invoiceNumber;
+  final bool isProformaOnly;
   final VoidCallback onClose;
 
-  const _SentStep({required this.invoiceNumber, required this.onClose});
+  const _SentStep({required this.invoiceNumber, this.isProformaOnly = false, required this.onClose});
 
   @override
   Widget build(BuildContext context) {
@@ -934,7 +1018,7 @@ class _SentStep extends StatelessWidget {
             child: Icon(Icons.check, size: 32, color: c.green),
           ),
           const SizedBox(height: 16),
-          Text('Invoice saved',
+          Text(isProformaOnly ? 'Proforma saved' : 'Invoice saved',
               style: AppType.heading(size: 22, color: c.text)),
           const SizedBox(height: 8),
           if (invoiceNumber != null) ...[
@@ -951,7 +1035,9 @@ class _SentStep extends StatelessWidget {
             const SizedBox(height: 12),
           ],
           Text(
-            'Added to your Outstanding list.\nShare with your customer via WhatsApp or email.',
+            isProformaOnly
+                ? 'Share this proforma with your customer via WhatsApp or email.'
+                : 'Added to your Outstanding list.\nShare with your customer via WhatsApp or email.',
             style: AppType.body(size: 13, color: c.textMuted),
             textAlign: TextAlign.center,
           ),

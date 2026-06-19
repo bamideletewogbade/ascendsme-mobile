@@ -10,8 +10,10 @@ import '../../services/crm_service.dart';
 import '../../services/supabase_service.dart';
 import '../../state/app_state.dart';
 import '../sheets/new_invoice_sheet.dart';
+import '../sheets/create_proforma_sheet.dart';
 import 'invoice_detail_screen.dart';
 import 'receipt_detail_screen.dart';
+import 'recurring_invoices_screen.dart';
 
 /// Unified invoicing tool — an all-in-one screen that replaces the separate
 /// Invoices, Receipts, and Proformas screens. Tabs for quick switching,
@@ -37,7 +39,8 @@ class _InvoicesScreenState extends State<InvoicesScreen>
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 3, vsync: this);
+    _tabCtrl = TabController(length: 3, vsync: this, initialIndex: 0); // Proformas first
+    _tabCtrl.addListener(_onTabChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final state = context.read<AppState>();
       if (state.invoices.isEmpty && !state.invoicesLoading) {
@@ -46,7 +49,14 @@ class _InvoicesScreenState extends State<InvoicesScreen>
       if (state.receipts.isEmpty) {
         state.loadReceipts();
       }
+      if (state.recurringTemplates.isEmpty && !state.recurringTemplatesLoading) {
+        state.loadRecurringTemplates();
+      }
     });
+  }
+
+  void _onTabChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -140,13 +150,22 @@ class _InvoicesScreenState extends State<InvoicesScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Could not convert quote'),
+          content: const Text('Could not convert proforma'),
           backgroundColor: context.colors.rose,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
     }
+  }
+
+  void _openNewProforma() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const CreateProformaSheet(),
+    );
   }
 
   // ── Build ──
@@ -161,12 +180,29 @@ class _InvoicesScreenState extends State<InvoicesScreen>
     final regularInvoices = invoices.where((i) => !i.isProforma).toList();
     final isLoading = state.invoicesLoading && invoices.isEmpty;
 
+    final bool isProformaTab = _tabCtrl.index == 0; // Tab 0 = Proformas
+    final String btnLabel = isProformaTab ? 'New proforma' : 'New invoice';
+    final VoidCallback btnOnTap = isProformaTab ? _openNewProforma : _openNewInvoice;
+
     return Scaffold(
       backgroundColor: c.bg,
       body: SafeArea(
         child: Column(
           children: [
             SubScreenHeader('Invoicing', onBack: () => Navigator.pop(context)),
+
+            // ── Recurring invoices card ──
+            _RecurringSummary(
+              templates: state.recurringTemplates,
+              onManage: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RecurringInvoicesScreen()),
+              ),
+              onCreate: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const RecurringInvoicesScreen()),
+              ),
+            ),
 
             // ── Tab bar ──
             Container(
@@ -183,8 +219,8 @@ class _InvoicesScreenState extends State<InvoicesScreen>
                     AppType.body(size: 13, weight: FontWeight.w500),
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 tabs: [
+                  Tab(text: 'Proformas (${proformas.length})'),
                   Tab(text: 'Invoices (${regularInvoices.length})'),
-                  Tab(text: 'Quotes (${proformas.length})'),
                   Tab(text: 'Receipts (${receipts.length})'),
                 ],
               ),
@@ -195,7 +231,22 @@ class _InvoicesScreenState extends State<InvoicesScreen>
               child: TabBarView(
                 controller: _tabCtrl,
                 children: [
-                  // ── Tab 1: Invoices ──
+                  // ── Tab 1: Proformas ──
+                  _ProformasTab(
+                    proformas: proformas,
+                    isLoading: isLoading,
+                    onRefresh: _refreshInvoices,
+                    onConvert: (p) => _quickConvertProforma(p, state),
+                    onOpenDetail: (p) => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            InvoiceDetailScreen(initialInvoice: p),
+                      ),
+                    ),
+                  ),
+
+                  // ── Tab 2: Invoices ──
                   _InvoicesTab(
                     invoices: regularInvoices,
                     searchQuery: _searchQuery,
@@ -216,21 +267,6 @@ class _InvoicesScreenState extends State<InvoicesScreen>
                     onMarkPaid: (inv) => _quickMarkPaid(inv, state),
                     onCopyPayLink: (inv) => _quickCopyPayLink(inv),
                     onCreateNew: _openNewInvoice,
-                  ),
-
-                  // ── Tab 2: Quotes ──
-                  _QuotesTab(
-                    proformas: proformas,
-                    isLoading: isLoading,
-                    onRefresh: _refreshInvoices,
-                    onConvert: (p) => _quickConvertProforma(p, state),
-                    onOpenDetail: (p) => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            InvoiceDetailScreen(initialInvoice: p),
-                      ),
-                    ),
                   ),
 
                   // ── Tab 3: Receipts ──
@@ -255,16 +291,116 @@ class _InvoicesScreenState extends State<InvoicesScreen>
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
               child: AppBtn(
-                'New invoice',
+                btnLabel,
                 full: true,
                 icon: 'add',
-                onTap: _openNewInvoice,
+                onTap: btnOnTap,
               ),
             ),
           ],
         ),
       ),
     );
+  }
+}
+
+// ── Recurring invoices summary card ───────────────────────────────────────
+
+/// Compact card shown below the header that displays the number of active
+/// recurring templates and links to the full recurring invoices management
+/// screen.
+class _RecurringSummary extends StatelessWidget {
+  final List<RecurringTemplate> templates;
+  final VoidCallback onManage;
+  final VoidCallback onCreate;
+
+  const _RecurringSummary({
+    required this.templates,
+    required this.onManage,
+    required this.onCreate,
+  });
+
+  double _computeMrr() {
+    final active = templates.where((t) => t.isActive);
+    double total = 0;
+    for (final t in active) {
+      total += switch (t.frequency) {
+        RecurringFrequency.weekly => t.amount * 4.33,
+        RecurringFrequency.monthly => t.amount.toDouble(),
+        RecurringFrequency.quarterly => t.amount / 3,
+        RecurringFrequency.yearly => t.amount / 12,
+      };
+    }
+    return total;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final activeTemplates = templates.where((t) => t.isActive).toList();
+    final mrr = _computeMrr();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+      child: GestureDetector(
+        onTap: activeTemplates.isNotEmpty ? onManage : onCreate,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: c.tealSurface.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: c.teal.withValues(alpha: 0.2)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 34, height: 34,
+                decoration: BoxDecoration(
+                  color: c.teal.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.repeat_rounded, size: 18, color: c.teal),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      activeTemplates.isNotEmpty
+                          ? '${activeTemplates.length} active recurring invoice${activeTemplates.length == 1 ? '' : 's'}'
+                          : 'Set up recurring invoices',
+                      style: AppType.body(
+                          size: 12.5, weight: FontWeight.w600, color: c.text),
+                    ),
+                    const SizedBox(height: 1),
+                    Text(
+                      activeTemplates.isNotEmpty
+                          ? '${formatGHS(mrr.round())}/mo MRR · ${_nextDate(activeTemplates)}'
+                          : 'Auto-generate invoices on a schedule',
+                      style: AppType.body(size: 11, color: c.textMuted),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 18, color: c.textFaint),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _nextDate(List<RecurringTemplate> active) {
+    if (active.isEmpty) return '';
+    final sorted = List<RecurringTemplate>.from(active)
+      ..sort((a, b) => a.nextInvoiceDate.compareTo(b.nextInvoiceDate));
+    final d = sorted.first.nextInvoiceDate;
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return 'Next: ${months[d.month - 1]} ${d.day}';
   }
 }
 
@@ -841,17 +977,17 @@ class _GroupHeader extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// TAB 2: QUOTES (Proformas)
+// TAB 2: PROFORMAS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _QuotesTab extends StatelessWidget {
+class _ProformasTab extends StatelessWidget {
   final List<Invoice> proformas;
   final bool isLoading;
   final Future<void> Function() onRefresh;
   final void Function(Invoice) onConvert;
   final void Function(Invoice) onOpenDetail;
 
-  const _QuotesTab({
+  const _ProformasTab({
     required this.proformas,
     required this.isLoading,
     required this.onRefresh,
@@ -868,8 +1004,8 @@ class _QuotesTab extends StatelessWidget {
     return RefreshIndicator(
       onRefresh: onRefresh,
       color: c.teal,
-      child: proformas.isEmpty
-          ? _QuotesEmptyState()
+              child: proformas.isEmpty
+          ? _ProformasEmptyState()
           : ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
@@ -885,7 +1021,7 @@ class _QuotesTab extends StatelessWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('${proformas.length} quote${proformas.length == 1 ? '' : 's'}',
+                            Text(                            '${proformas.length} proforma${proformas.length == 1 ? '' : 's'}',
                                 style: AppType.body(
                                     size: 13, weight: FontWeight.w600, color: c.text)),
                             Text('Convert to invoice when the client approves.',
@@ -902,7 +1038,7 @@ class _QuotesTab extends StatelessWidget {
                       padding: const EdgeInsets.only(bottom: 8),
                       child: FadeInSlide(
                         index: e.key,
-                        child: _QuoteCard(
+                        child: _ProformaCard(
                           invoice: e.value,
                           onTap: () => onOpenDetail(e.value),
                           onConvert: () => onConvert(e.value),
@@ -915,12 +1051,12 @@ class _QuotesTab extends StatelessWidget {
   }
 }
 
-class _QuoteCard extends StatelessWidget {
+class _ProformaCard extends StatelessWidget {
   final Invoice invoice;
   final VoidCallback onTap;
   final VoidCallback onConvert;
 
-  const _QuoteCard({
+  const _ProformaCard({
     required this.invoice,
     required this.onTap,
     required this.onConvert,
@@ -950,8 +1086,7 @@ class _QuoteCard extends StatelessWidget {
                         style: AppType.mono(size: 11, color: c.textMuted)),
                   ],
                 ),
-              ),
-              AppPill('Quote', tone: PillTone.neutral, small: true),
+              ),                              AppPill('Proforma', tone: PillTone.neutral, small: true),
             ],
           ),
           const SizedBox(height: 8),
@@ -979,7 +1114,7 @@ class _QuoteCard extends StatelessWidget {
   }
 }
 
-class _QuotesEmptyState extends StatelessWidget {
+class _ProformasEmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -1001,13 +1136,13 @@ class _QuotesEmptyState extends StatelessWidget {
                     Icon(Icons.description_outlined, size: 26, color: c.navy),
               ),
               const SizedBox(height: 16),
-              Text('No quotes yet',
+              Text('No proformas yet',
                   style: AppType.heading(size: 18, color: c.text)),
               const SizedBox(height: 6),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 40),
                 child: Text(
-                  'Create an invoice as a proforma quote first — your client can review before you convert it to a real invoice.',
+                  'Create a proforma first — your client can review before you convert it to a real invoice.',
                   textAlign: TextAlign.center,
                   style: AppType.body(size: 13, color: c.textMuted),
                 ),

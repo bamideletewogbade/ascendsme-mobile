@@ -44,6 +44,14 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
 
   List<Receipt> get _filteredReceipts {
     var result = context.read<AppState>().receiptList;
+    final state = context.read<AppState>();
+    // Apply period filter
+    final months = state.effectivePeriodMonths;
+    if (months > 0) {
+      final now = DateTime.now();
+      final start = DateTime(now.year, now.month - months + 1, 1);
+      result = result.where((r) => !r.paidDate.isBefore(start)).toList();
+    }
     final q = _searchQuery.trim().toLowerCase();
     if (q.isNotEmpty) {
       result = result.where((r) =>
@@ -82,12 +90,18 @@ class _ReceiptsScreenState extends State<ReceiptsScreen> {
               onBack: () => Navigator.pop(context),
             ),
             if (allReceipts.isNotEmpty) ...[
+              // ── Period pills ──
+              const Padding(
+                padding: EdgeInsets.fromLTRB(20, 8, 20, 0),
+                child: AppPeriodSelector(),
+              ),
+              const SizedBox(height: 8),
               // ── Payment method filter chips ──
               SizedBox(
                 height: 34,
                 child: ListView(
                   scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
                   children: [
                     _MethodChip(
                       label: 'All',
@@ -287,10 +301,8 @@ class _ListBody extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(_monthLabel(key),
-                    style: AppType.body(
-                        size: 14,
-                        weight: FontWeight.w700,
-                        color: c.text)),
+                    style: AppType.heading(
+                        size: 14, color: c.text)),
                 const SizedBox(width: 6),
                 Text('· ${groups[key]!.length}',
                     style: AppType.body(size: 12, color: c.textMuted)),

@@ -14,6 +14,26 @@ import '../core/models.dart';
 import 'app_logger.dart';
 import 'supabase_service.dart';
 
+/// Result from [SubscriptionService.getCurrentSubscription] — wraps the
+/// active subscription (or null) together with expired-tier info so the UI
+/// can show a renewal banner.
+class SubscriptionLoadResult {
+  /// The active subscription, or null if on free / expired.
+  final SubscriptionInfo? subscription;
+
+  /// True when a previous paid subscription period ended recently.
+  final bool expired;
+
+  /// The tier code of the expired subscription (e.g. 'lite', 'plus'), or null.
+  final String? expiredTierCode;
+
+  const SubscriptionLoadResult({
+    this.subscription,
+    this.expired = false,
+    this.expiredTierCode,
+  });
+}
+
 class SubscriptionService {
   /// Fetch all available subscription tiers.
   static Future<List<SubscriptionPlan>> fetchTiers() async {
@@ -27,13 +47,23 @@ class SubscriptionService {
     return (rows as List).map((r) => SubscriptionPlan.fromRow(r as Map<String, dynamic>)).toList();
   }
 
-  /// Get the current active subscription for this business. Returns null when
-  /// the business has no active subscription (free tier or expired).
-  static Future<SubscriptionInfo?> getCurrentSubscription({
+  /// Get the current active subscription for this business. Returns a
+  /// [SubscriptionLoadResult] with the subscription info (or null if free /
+  /// expired), plus an [expired] flag and the expired tier code so the UI
+  /// can show a renewal banner.
+  ///
+  /// When a subscription's period has ended, this method:
+  ///   1. Marks the subscription as 'expired' in the DB.
+  ///   2. Downgrades the business to 'free' on the DB.
+  ///   3. Returns `expired: true` with `expiredTierCode` set so the UI
+  ///      can show "Your X plan has expired" (matching web's behavior).
+  static Future<SubscriptionLoadResult> getCurrentSubscription({
     required String businessId,
   }) async {
     log.debug('SubscriptionService.getCurrentSubscription — bizId=$businessId');
     final sw = Stopwatch()..start();
+
+    // First try active subscription
     final row = await SupabaseService.client
         .from('subscriptions')
         .select('*, tier:subscription_tiers(*)')
@@ -44,17 +74,37 @@ class SubscriptionService {
         .maybeSingle();
 
     if (row == null) {
+      // No active subscription — check if there's an expired one we can
+      // surface for the renewal banner.
+      final expiredRow = await SupabaseService.client
+          .from('subscriptions')
+          .select('*, tier:subscription_tiers(*)')
+          .eq('business_id', businessId)
+          .eq('status', 'expired')
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (expiredRow != null) {
+        final expiredSub = SubscriptionInfo.fromRow(Map<String, dynamic>.from(expiredRow));
+        log.info('SubscriptionService.getCurrentSubscription — found expired tier=${expiredSub.tierCode} (${sw.elapsedMilliseconds}ms)');
+        return SubscriptionLoadResult(
+          expired: true,
+          expiredTierCode: expiredSub.tierCode,
+        );
+      }
+
       log.info('SubscriptionService.getCurrentSubscription — no active sub (${sw.elapsedMilliseconds}ms)');
-      return null;
+      return const SubscriptionLoadResult();
     }
 
     final sub = SubscriptionInfo.fromRow(Map<String, dynamic>.from(row));
 
     // Check if the subscription period has ended — if so, downgrade the business
-    // to free and return null (the web handles this via a background job, but
-    // mobile enforces it inline for correctness).
+    // to free and return expired so the UI shows a renewal banner.
     if (sub.currentPeriodEnd != null && sub.currentPeriodEnd!.isBefore(DateTime.now())) {
       log.info('SubscriptionService.getCurrentSubscription — period ended, downgrading to free');
+      final tierCode = sub.tierCode;
       await SupabaseService.client
           .from('subscriptions')
           .update({'status': 'expired', 'updated_at': DateTime.now().toUtc().toIso8601String()})
@@ -63,11 +113,15 @@ class SubscriptionService {
           .from('businesses')
           .update({'subscription_tier': 'free', 'subscription_id': null})
           .eq('id', businessId);
-      return null;
+      log.info('SubscriptionService.getCurrentSubscription — expired tier=$tierCode downgraded (${sw.elapsedMilliseconds}ms)');
+      return SubscriptionLoadResult(
+        expired: true,
+        expiredTierCode: tierCode,
+      );
     }
 
     log.info('SubscriptionService.getCurrentSubscription — found tier=${sub.tierCode} (${sw.elapsedMilliseconds}ms)');
-    return sub;
+    return SubscriptionLoadResult(subscription: sub);
   }
 
   /// Create a new subscription for this business. Used for upgrades and new

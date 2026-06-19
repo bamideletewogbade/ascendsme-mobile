@@ -5,8 +5,10 @@ class Business {
   /// since no real row backs it.
   final String? id;
   final String name, handle, industry, city, region, tier, initials;
-  final int sustainabilityScore, creditScore;
+  final int sustainabilityScore;
   final bool verified;
+  /// URL to the business logo image stored in Supabase Storage.
+  final String? logoUrl;
   // Four-pillar breakdown that feeds sustainability_score. Each 0-100. See
   // ascendsme-b's score engine + the audit table — F=Financial Integrity
   // (30%), C=Compliance (30%), O=Operational Velocity (25%), G=Governance
@@ -29,8 +31,8 @@ class Business {
     required this.tier,
     required this.initials,
     required this.sustainabilityScore,
-    required this.creditScore,
     required this.verified,
+    this.logoUrl,
     required this.monthlyRevenue,
     required this.monthlyExpenses,
     required this.outstandingInvoices,
@@ -40,6 +42,46 @@ class Business {
     this.scoreG = 0,
     this.scoreC = 0,
   });
+
+  /// Compute the sustainability credit score (300-850 scale) matching the
+  /// web platform's formula exactly:
+  ///   SS = 300 + ((F*0.30 + C*0.30 + O*0.25 + G*0.15) / 100) * 550
+  /// Uses the stored `sustainabilityScore` if it's already >= 300 (meaning it
+  /// was already computed as a credit score). Otherwise computes fresh from
+  /// the 4 pillar scores (scoreF/scoreC/scoreO/scoreG, each 0-100).
+  int get creditScore {
+    if (sustainabilityScore >= 300) return sustainabilityScore;
+    final weighted =
+        scoreF * 0.30 + scoreC * 0.30 + scoreO * 0.25 + scoreG * 0.15;
+    return 300 + ((weighted / 100.0) * 550).round();
+  }
+
+  /// Create a copy with optional field overrides.
+  Business copyWith({
+    String? logoUrl,
+  }) {
+    return Business(
+      id: id,
+      name: name,
+      handle: handle,
+      industry: industry,
+      city: city,
+      region: region,
+      tier: tier,
+      initials: initials,
+      sustainabilityScore: sustainabilityScore,
+      verified: verified,
+      logoUrl: logoUrl ?? this.logoUrl,
+      monthlyRevenue: monthlyRevenue,
+      monthlyExpenses: monthlyExpenses,
+      outstandingInvoices: outstandingInvoices,
+      pipeline: pipeline,
+      scoreF: scoreF,
+      scoreO: scoreO,
+      scoreG: scoreG,
+      scoreC: scoreC,
+    );
+  }
 
   /// Build a Business from a row returned by `SupabaseService.fetchProfile()`.
   /// Maps backend column names (user_id, business_name, business_handle,
@@ -67,8 +109,10 @@ class Business {
       tier: _displaySubscriptionTier(row['subscription_tier'] as String?),
       initials: _extractInitials(name),
       sustainabilityScore: (row['sustainability_score'] as num?)?.toInt() ?? 0,
-      creditScore: (row['credit_score'] as num?)?.toInt() ?? 0,
       verified: _isVerified(row),
+      logoUrl: (row['logo_url'] as String?)?.trim().isNotEmpty == true
+          ? row['logo_url'] as String
+          : null,
       monthlyRevenue: 0,
       monthlyExpenses: 0,
       outstandingInvoices: 0,
@@ -98,8 +142,11 @@ class Financials {
   final int outstandingCount;
   final int outstandingOverdueCount;
   final int pipeline; // proforma quotes; not wired yet — see loadFinancials()
-  final double? revenueChangePctVsLastMonth;
-  final double? expensesChangePctVsLastMonth;
+
+
+  // New fields for forecasting
+  final double projectedCash30Days;
+  final bool isAtRisk;
 
   const Financials({
     required this.revenueThisMonth,
@@ -108,8 +155,8 @@ class Financials {
     required this.outstandingCount,
     required this.outstandingOverdueCount,
     required this.pipeline,
-    this.revenueChangePctVsLastMonth,
-    this.expensesChangePctVsLastMonth,
+    this.projectedCash30Days = 0,
+    this.isAtRisk = false,
   });
 
   static const empty = Financials(
@@ -119,8 +166,8 @@ class Financials {
     outstandingCount: 0,
     outstandingOverdueCount: 0,
     pipeline: 0,
-    revenueChangePctVsLastMonth: null,
-    expensesChangePctVsLastMonth: null,
+    projectedCash30Days: 0,
+    isAtRisk: false,
   );
 
   bool get isEmpty =>
@@ -137,10 +184,6 @@ class Financials {
         'outstandingCount': outstandingCount,
         'outstandingOverdueCount': outstandingOverdueCount,
         'pipeline': pipeline,
-        if (revenueChangePctVsLastMonth != null)
-          'revenueChangePctVsLastMonth': revenueChangePctVsLastMonth,
-        if (expensesChangePctVsLastMonth != null)
-          'expensesChangePctVsLastMonth': expensesChangePctVsLastMonth,
       };
 
   /// Restore from a map previously produced by [toMap].
@@ -152,11 +195,29 @@ class Financials {
         outstandingOverdueCount:
             map['outstandingOverdueCount'] as int? ?? 0,
         pipeline: map['pipeline'] as int? ?? 0,
-        revenueChangePctVsLastMonth:
-            (map['revenueChangePctVsLastMonth'] as num?)?.toDouble(),
-        expensesChangePctVsLastMonth:
-            (map['expensesChangePctVsLastMonth'] as num?)?.toDouble(),
+
       );
+}
+
+// ── PeriodSummary — client-side aggregation for custom time ranges ───────────
+
+/// Aggregated financials for a custom time range (1M, 3M, 6M, YTD), computed
+/// client-side from the raw receipts and expenses lists in AppState.
+/// No Supabase queries needed — instant period switching.
+class PeriodSummary {
+  final DateTime startDate;
+  final DateTime endDate;
+  final double revenue;
+  final double expenses;
+  const PeriodSummary({
+    required this.startDate,
+    required this.endDate,
+    required this.revenue,
+    required this.expenses,
+  });
+
+  double get net => revenue - expenses;
+  bool get isEmpty => revenue == 0 && expenses == 0;
 }
 
 // ── Currency + date formatting helpers ───────────────────────────────────────
@@ -180,14 +241,13 @@ const _kMonthNames = [
 
 String currentMonthShort() => _kMonthNames[DateTime.now().month - 1];
 
-/// Render a +/- percent like "+12%" or "-3%". Returns null when input is null
-/// (caller should hide the change chip in that case).
-String? formatChangePct(double? pct) {
-  if (pct == null) return null;
-  final rounded = pct.round();
-  final sign = rounded > 0 ? '+' : '';
-  return '$sign$rounded%';
-}
+const _kFullMonthNames = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+String currentMonthName() => _kFullMonthNames[DateTime.now().month - 1];
+
 
 // ── Business mapping helpers ─────────────────────────────────────────────────
 
@@ -385,12 +445,15 @@ class InvoiceLineItem {
   final num? quantity;
   /// Unit price, when available. Null for legacy rows.
   final num? unitPrice;
+  /// Item type: 'goods' | 'service' | null for legacy rows.
+  final String? itemType;
 
   const InvoiceLineItem({
     required this.description,
     required this.amount,
     this.quantity,
     this.unitPrice,
+    this.itemType,
   });
 
   /// Display-friendly string like "3 × GHS 150" when both fields are present.
@@ -417,6 +480,14 @@ class InvoiceLineItem {
         ? v
         : (num.tryParse(v?.toString() ?? '') ?? 0);
 
+    // Parse item_type from the raw data (used by web for goods vs service)
+    final rawType = raw['item_type'] as String?;
+    final itemType = (rawType != null && ['goods', 'service'].contains(rawType.toLowerCase()))
+        ? rawType.toLowerCase()
+        : (raw['is_goods'] == true ? 'goods'
+           : raw['is_goods'] == false ? 'service'
+           : null);
+
     final rawQty = raw['quantity'];
     final rawPrice = raw['price'] ?? raw['unit_price'];
     if (rawQty != null && rawPrice != null) {
@@ -427,12 +498,15 @@ class InvoiceLineItem {
         amount: qty * price,
         quantity: qty,
         unitPrice: price,
+        itemType: itemType,
       );
     }
+
     // Legacy: amount-only row
     return InvoiceLineItem(
       description: desc,
       amount: parseNum(raw['amount']),
+      itemType: itemType,
     );
   }
 }
@@ -560,7 +634,14 @@ String formatLongDate(DateTime d) =>
 
 class VerificationStep {
   final String id, label, status, detail;
-  const VerificationStep({required this.id, required this.label, required this.status, required this.detail});
+  final int tier; // 1=Access, 2=Legitimacy, 3=Sustainability
+  const VerificationStep({
+    required this.id,
+    required this.label,
+    required this.status,
+    required this.detail,
+    this.tier = 2,
+  });
 }
 
 class FundingStage {
@@ -597,8 +678,8 @@ class InventoryItem {
   final int currentStock;
   final int? lowStockThreshold;
   final double? unitPrice;
+  final double? unitCost;
   final bool isGoods;
-  final String? imageUrl;
 
   const InventoryItem({
     required this.id,
@@ -608,12 +689,31 @@ class InventoryItem {
     this.currentStock = 0,
     this.lowStockThreshold,
     this.unitPrice,
+    this.unitCost,
     this.isGoods = true,
-    this.imageUrl,
   });
 
   bool get lowStock =>
       lowStockThreshold != null && currentStock <= lowStockThreshold!;
+
+  /// Gross profit margin per unit, as a percentage (0–100).
+  /// Null when both price and cost are not available.
+  double? get marginPercent {
+    if (unitPrice == null || unitCost == null || unitCost == 0) return null;
+    return ((unitPrice! - unitCost!) / unitPrice! * 100).clamp(0, 100);
+  }
+
+  /// Gross profit per unit in GHS.
+  double? get unitProfit {
+    if (unitPrice == null || unitCost == null) return null;
+    return unitPrice! - unitCost!;
+  }
+
+  /// Estimated total stock value at cost (not selling price).
+  double get stockValueAtCost => (unitCost ?? 0) * currentStock;
+
+  /// Estimated total stock value at selling price.
+  double get stockValueAtPrice => (unitPrice ?? 0) * currentStock;
 
   factory InventoryItem.fromRow(Map<String, dynamic> row) => InventoryItem(
         id: row['id'] as String,
@@ -628,8 +728,8 @@ class InventoryItem {
         lowStockThreshold:
             (row['low_stock_threshold'] as num?)?.toInt(),
         unitPrice: (row['unit_price'] as num?)?.toDouble(),
+        unitCost: (row['unit_cost'] as num?)?.toDouble(),
         isGoods: (row['type'] as String?)?.toUpperCase() == 'GOODS',
-        imageUrl: row['image_url'] as String?,
       );
 }
 
@@ -943,12 +1043,12 @@ class BookingService {
   factory BookingService.fromRow(Map<String, dynamic> row) => BookingService(
         id: row['id'] as String,
         businessId: row['business_id'] as String,
-        name: (row['name'] as String?)?.trim() ?? 'Unnamed service',
+        name: (row['service_name'] as String?)?.trim() ?? 'Unnamed service',
         description: row['description'] as String?,
-        price: (row['price'] as num?)?.toDouble(),
+        price: (row['price_ghs'] as num?)?.toDouble(),
         durationMinutes: (row['duration_minutes'] as num?)?.toInt() ?? 60,
         isActive: row['is_active'] != false,
-        imageUrl: row['image_url'] as String?,
+        imageUrl: row['thumbnail_url'] as String?,
       );
 }
 
@@ -994,21 +1094,39 @@ class Booking {
       };
 
   factory Booking.fromRow(Map<String, dynamic> row) {
-    final startRaw = row['start_time'] as String?;
     final createdRaw = row['created_at'] as String?;
+
+    // Combine booking_date + booking_time into a single DateTime
+    final dateStr = row['booking_date'] as String?;
+    final timeStr = row['booking_time'] as String?;
+    DateTime startTime = DateTime.now();
+    if (dateStr != null) {
+      if (timeStr != null) {
+        startTime = DateTime.parse('${dateStr}T${timeStr}');
+      } else {
+        startTime = DateTime.parse(dateStr);
+      }
+    }
+
+    // Service details come via join query (booking_services table)
+    final svcData = row['booking_services'] as Map<String, dynamic>?;
+    final svcName = svcData?['service_name'] as String?;
+    final svcDuration = (svcData?['duration_minutes'] as num?)?.toInt();
+    final svcPrice = (svcData?['price_ghs'] as num?)?.toDouble();
+
     return Booking(
       id: row['id'] as String,
       businessId: row['business_id'] as String,
-      serviceName: (row['service_name'] as String?)?.trim() ?? 'Service',
+      // Fall back to direct field for cache/backward compat
+      serviceName: svcName?.trim() ?? (row['service_name'] as String?)?.trim() ?? 'Service',
       serviceId: row['service_id'] as String?,
-      customerName: (row['customer_name'] as String?)?.trim() ?? 'Customer',
-      customerPhone: row['customer_phone'] as String?,
-      customerEmail: row['customer_email'] as String?,
-      startTime: startRaw != null ? DateTime.parse(startRaw) : DateTime.now(),
-      durationMinutes: (row['duration_minutes'] as num?)?.toInt() ?? 60,
+      customerName: (row['client_name'] as String?)?.trim() ?? 'Customer',
+      customerPhone: row['client_phone'] as String?,
+      customerEmail: row['client_email'] as String?,
+      startTime: startTime,
+      durationMinutes: svcDuration ?? (row['duration_minutes'] as num?)?.toInt() ?? 60,
       status: (row['status'] as String?)?.toLowerCase() ?? 'pending',
-      notes: row['notes'] as String?,
-      price: (row['price'] as num?)?.toDouble(),
+      price: svcPrice ?? (row['price'] as num?)?.toDouble(),
       createdAt: createdRaw != null ? DateTime.parse(createdRaw) : DateTime.now(),
     );
   }
@@ -1027,6 +1145,8 @@ class Expense {
   final bool sustainabilityTagged;
   /// Payment source: cash | momo | bank.
   final String paymentSource;
+  /// Optional URL to an uploaded receipt image (stored in Supabase Storage).
+  final String? attachmentUrl;
 
   const Expense({
     required this.id,
@@ -1037,6 +1157,7 @@ class Expense {
     this.mappedCategory = 'other',
     this.sustainabilityTagged = false,
     this.paymentSource = 'cash',
+    this.attachmentUrl,
   });
 
   /// Display label for the expense category with icon-friendly names.
@@ -1071,6 +1192,9 @@ class Expense {
       mappedCategory: (row['mapped_category'] as String?)?.trim() ?? 'other',
       sustainabilityTagged: row['sustainability_tagged'] == true,
       paymentSource: (row['payment_source'] as String?)?.toLowerCase() ?? 'cash',
+      attachmentUrl: (row['attachment_url'] as String?)?.trim().isNotEmpty == true
+          ? (row['attachment_url'] as String).trim()
+          : null,
     );
   }
 }
@@ -1377,7 +1501,7 @@ class PaymentTransaction {
 enum RecurringFrequency { weekly, monthly, quarterly, yearly }
 
 /// A template for generating invoices on a recurring schedule. Stored in the
-/// `recurring_invoice_templates` table (shared with web). The actual
+/// `recurring_invoice_schedules` table (shared with web). The actual
 /// invoice generation is triggered server-side via pg_cron; mobile manages
 /// the templates (CRUD) and displays upcoming dates.
 class RecurringTemplate {
@@ -1474,13 +1598,14 @@ class ScoreTier {
   const ScoreTier({required this.id, required this.label, required this.min, required this.color});
 }
 
+// Web-platform stages (sustainability-score.ts):
+//   Foundation  300–449   grey
+//   Growth      450–649   teal
+//   Verified    650–850   indigo
 const List<ScoreTier> kTiers = [
-  ScoreTier(id: 'seedling', label: 'Seedling', min: 0,  color: 0xFF9CA3AF),
-  ScoreTier(id: 'sprout',   label: 'Sprout',   min: 30, color: 0xFF86C28A),
-  ScoreTier(id: 'bronze',   label: 'Bronze',   min: 50, color: 0xFFC28552),
-  ScoreTier(id: 'silver',   label: 'Silver',   min: 70, color: 0xFF9BA8B5),
-  ScoreTier(id: 'gold',     label: 'Gold',     min: 85, color: 0xFFE5B349),
-  ScoreTier(id: 'indigo',   label: 'Indigo',   min: 95, color: 0xFF5B5BD6),
+  ScoreTier(id: 'foundation', label: 'Foundation', min: 300, color: 0xFF9CA3AF),
+  ScoreTier(id: 'growth',     label: 'Growth',     min: 450, color: 0xFF009B9E),
+  ScoreTier(id: 'verified',   label: 'Verified',   min: 650, color: 0xFF5B5BD6),
 ];
 
 ScoreTier getTier(int score) =>
@@ -1489,3 +1614,247 @@ ScoreTier getTier(int score) =>
 ScoreTier? getNextTier(int score) {
   try { return kTiers.firstWhere((t) => score < t.min); } catch (_) { return null; }
 }
+
+// ── Project Management ───────────────────────────────────────────────────────
+
+/// A project milestone (often treated as a "Project" itself on mobile).
+class ProjectMilestone {
+  final String id;
+  final String businessId;
+  final String projectName;
+  final String projectType; // gig | booking | custom
+  final String status; // not_started | in_progress | completed | blocked
+  final int currentIndex;
+  final int totalMilestones;
+  final List<dynamic> milestoneData;
+  final DateTime? startedAt;
+  final DateTime? completedAt;
+  final DateTime createdAt;
+
+  const ProjectMilestone({
+    required this.id,
+    required this.businessId,
+    required this.projectName,
+    this.projectType = 'custom',
+    this.status = 'not_started',
+    this.currentIndex = 0,
+    this.totalMilestones = 1,
+    this.milestoneData = const [],
+    this.startedAt,
+    this.completedAt,
+    required this.createdAt,
+  });
+
+  factory ProjectMilestone.fromRow(Map<String, dynamic> row) {
+    return ProjectMilestone(
+      id: row['id'] as String,
+      businessId: row['business_id'] as String,
+      projectName: (row['project_name'] as String?) ?? 'Unnamed project',
+      projectType: (row['project_type'] as String?) ?? 'custom',
+      status: (row['status'] as String?) ?? 'not_started',
+      currentIndex: (row['current_milestone_index'] as num?)?.toInt() ?? 0,
+      totalMilestones: (row['total_milestones'] as num?)?.toInt() ?? 1,
+      milestoneData: row['milestone_data'] as List<dynamic>? ?? const [],
+      startedAt: row['started_at'] != null ? DateTime.tryParse(row['started_at'] as String) : null,
+      completedAt: row['completed_at'] != null ? DateTime.tryParse(row['completed_at'] as String) : null,
+      createdAt: row['created_at'] != null ? DateTime.parse(row['created_at'] as String) : DateTime.now(),
+    );
+  }
+}
+
+/// A task within a project milestone.
+class ProjectTask {
+  final String id;
+  final String milestoneId;
+  final String taskName;
+  final String taskType; // fitting | registration | custom
+  final String status; // pending | in_progress | completed | blocked
+  final String? assignedToUserId;
+  final DateTime? startedAt;
+  final DateTime? completedAt;
+  final int timeSpentMinutes;
+  final DateTime createdAt;
+
+  const ProjectTask({
+    required this.id,
+    required this.milestoneId,
+    required this.taskName,
+    this.taskType = 'custom',
+    this.status = 'pending',
+    this.assignedToUserId,
+    this.startedAt,
+    this.completedAt,
+    this.timeSpentMinutes = 0,
+    required this.createdAt,
+  });
+
+  factory ProjectTask.fromRow(Map<String, dynamic> row) {
+    return ProjectTask(
+      id: row['id'] as String,
+      milestoneId: row['milestone_id'] as String,
+      taskName: (row['task_name'] as String?) ?? 'Unnamed task',
+      taskType: (row['task_type'] as String?) ?? 'custom',
+      status: (row['status'] as String?) ?? 'pending',
+      assignedToUserId: row['assigned_to_user_id'] as String?,
+      startedAt: row['started_at'] != null ? DateTime.tryParse(row['started_at'] as String) : null,
+      completedAt: row['completed_at'] != null ? DateTime.tryParse(row['completed_at'] as String) : null,
+      timeSpentMinutes: (row['time_spent_minutes'] as num?)?.toInt() ?? 0,
+      createdAt: row['created_at'] != null ? DateTime.parse(row['created_at'] as String) : DateTime.now(),
+    );
+  }
+}
+
+class Shop {
+  final String id;
+  final String businessId;
+  final String shopName;
+  final String? slug;
+  final bool isPublished;
+  final bool isMarketplaceListed;
+  final int totalViews;
+  final int totalOrders;
+  final double totalRevenueGhs;
+  final DateTime createdAt;
+  // ── Branding ──────────────────────────────────────────────────────────
+  final String? tagline;
+  final String? logoUrl;
+  final String? primaryColor;
+  final String? secondaryColor;
+  // ── Contact ───────────────────────────────────────────────────────────
+  final String? whatsappNumber;
+  final String? instagramUrl;
+  // ── Delivery ──────────────────────────────────────────────────────────
+  final int? deliveryFeeGhs;
+  final int? freeDeliveryThresholdGhs;
+  final String? deliveryDescription;
+  final String? deliveryFulfillment; // 'sme' | 'arrange' | null
+
+  const Shop({
+    required this.id,
+    required this.businessId,
+    required this.shopName,
+    this.slug,
+    this.isPublished = false,
+    this.isMarketplaceListed = false,
+    this.totalViews = 0,
+    this.totalOrders = 0,
+    this.totalRevenueGhs = 0,
+    required this.createdAt,
+    this.tagline,
+    this.logoUrl,
+    this.primaryColor,
+    this.secondaryColor,
+    this.whatsappNumber,
+    this.instagramUrl,
+    this.deliveryFeeGhs,
+    this.freeDeliveryThresholdGhs,
+    this.deliveryDescription,
+    this.deliveryFulfillment,
+  });
+
+  factory Shop.fromRow(Map<String, dynamic> row) {
+    return Shop(
+      id: row['id'] as String,
+      businessId: row['business_id'] as String,
+      shopName: (row['shop_name'] as String?) ?? 'My Shop',
+      slug: row['slug'] as String?,
+      isPublished: row['is_published'] as bool? ?? false,
+      isMarketplaceListed: row['is_marketplace_listed'] as bool? ?? false,
+      totalViews: (row['total_views'] as num?)?.toInt() ?? 0,
+      totalOrders: (row['total_orders'] as num?)?.toInt() ?? 0,
+      totalRevenueGhs: (row['total_revenue_ghs'] as num?)?.toDouble() ?? 0.0,
+      createdAt: DateTime.parse(row['created_at'] as String),
+      tagline: (row['tagline'] as String?)?.trim().isNotEmpty == true
+          ? row['tagline'] as String
+          : null,
+      logoUrl: row['logo_url'] as String?,
+      primaryColor: row['primary_color'] as String?,
+      secondaryColor: row['secondary_color'] as String?,
+      whatsappNumber: row['whatsapp_number'] as String?,
+      instagramUrl: row['instagram_url'] as String?,
+      deliveryFeeGhs: (row['delivery_fee_ghs'] as num?)?.toInt(),
+      freeDeliveryThresholdGhs: (row['free_delivery_threshold_ghs'] as num?)?.toInt(),
+      deliveryDescription: (row['delivery_description'] as String?)?.trim().isNotEmpty == true
+          ? row['delivery_description'] as String
+          : null,
+      deliveryFulfillment: row['delivery_fulfillment'] as String?,
+    );
+  }
+}
+
+
+class StaffPayment {
+  final String staffId;
+  final String staffName;
+  final String role;
+  final double amountGhs;
+
+  const StaffPayment({
+    required this.staffId,
+    required this.staffName,
+    required this.role,
+    required this.amountGhs,
+  });
+
+  factory StaffPayment.fromMap(Map<String, dynamic> map) {
+    return StaffPayment(
+      staffId: map['staff_id'] as String,
+      staffName: (map['staff_name'] as String?) ?? 'Unnamed Staff',
+      role: (map['role'] as String?) ?? 'Staff',
+      amountGhs: (map['amount_ghs'] as num?)?.toDouble() ?? 0.0,
+    );
+  }
+}
+
+class PayrollRun {
+  final String id;
+  final String businessId;
+  final String payPeriodMonth; // YYYY-MM
+  final DateTime payPeriodStart;
+  final DateTime payPeriodEnd;
+  final double totalPayrollGhs;
+  final int staffCount;
+  final List<StaffPayment> staffPayments;
+  final String status; // pending | processed | logged_to_finance
+  final String? expenseId;
+  final String? paymentSource;
+  final DateTime? processedAt;
+  final DateTime createdAt;
+
+  const PayrollRun({
+    required this.id,
+    required this.businessId,
+    required this.payPeriodMonth,
+    required this.payPeriodStart,
+    required this.payPeriodEnd,
+    required this.totalPayrollGhs,
+    required this.staffCount,
+    required this.staffPayments,
+    required this.status,
+    this.expenseId,
+    this.paymentSource,
+    this.processedAt,
+    required this.createdAt,
+  });
+
+  factory PayrollRun.fromRow(Map<String, dynamic> row) {
+    return PayrollRun(
+      id: row['id'] as String,
+      businessId: row['business_id'] as String,
+      payPeriodMonth: (row['pay_period_month'] as String?) ?? '',
+      payPeriodStart: DateTime.parse(row['pay_period_start'] as String),
+      payPeriodEnd: DateTime.parse(row['pay_period_end'] as String),
+      totalPayrollGhs: (row['total_payroll_ghs'] as num?)?.toDouble() ?? 0.0,
+      staffCount: (row['staff_count'] as num?)?.toInt() ?? 0,
+      staffPayments: (row['staff_payments'] as List<dynamic>? ?? [])
+          .map((p) => StaffPayment.fromMap(p as Map<String, dynamic>))
+          .toList(),
+      status: (row['status'] as String?) ?? 'pending',
+      expenseId: row['expense_id'] as String?,
+      paymentSource: row['payment_source'] as String?,
+      processedAt: row['processed_at'] != null ? DateTime.tryParse(row['processed_at'] as String) : null,
+      createdAt: DateTime.parse(row['created_at'] as String),
+    );
+  }
+}
+

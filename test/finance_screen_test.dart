@@ -22,12 +22,14 @@ void main() {
       expect(find.text('Finance'), findsOneWidget);
 
       // Quick action cards should be present with labels
-      expect(find.text('Log sale'), findsOneWidget);
-      expect(find.text('Invoice'), findsOneWidget);
-      expect(find.text('Expense'), findsOneWidget);
+      // (Note: when the screen is empty, the empty-state CTA also renders
+      // "Log sale"/"Expense", so we expect at least one match.)
+      expect(find.text('Log sale'), findsAtLeastNWidgets(1));
+      expect(find.text('Invoice'), findsAtLeastNWidgets(1));
+      expect(find.text('Expense'), findsAtLeastNWidgets(1));
     });
 
-    testWidgets('shows cash position hero header', (tester) async {
+    testWidgets('shows net cash hero header', (tester) async {
       final state = createTestAppState();
       await tester.pumpWidget(wrapWithProviders(
         const FinanceScreen(),
@@ -35,11 +37,15 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // The cash position hero should have a "Cash position" label
-      expect(find.text('Cash position'), findsOneWidget);
+      // The hero card should have "NET THIS PERIOD" label
+      expect(find.text('NET THIS PERIOD'), findsOneWidget);
+
+      // Inflows and Outflows labels should be present
+      expect(find.text('Inflows'), findsOneWidget);
+      expect(find.text('Outflows'), findsOneWidget);
     });
 
-    testWidgets('shows this month snapshot section', (tester) async {
+    testWidgets('shows transactions tab by default', (tester) async {
       final state = createTestAppState();
       await tester.pumpWidget(wrapWithProviders(
         const FinanceScreen(),
@@ -47,14 +53,16 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // Snapshot section should be visible
-      expect(find.textContaining('snapshot'), findsWidgets);
-      expect(find.text('Outstanding'), findsOneWidget);
-      expect(find.text('Received'), findsOneWidget);
-      expect(find.text('Spent'), findsOneWidget);
+      // The Transactions label appears twice: tab bar + section header
+      expect(find.text('Transactions'), findsWidgets);
+
+      // Filter chips should be visible
+      expect(find.text('All'), findsOneWidget);
+      expect(find.text('Income'), findsOneWidget);
+      expect(find.text('Expenses'), findsOneWidget);
     });
 
-    testWidgets('shows empty activity state when no data', (tester) async {
+    testWidgets('shows tab bar with all tabs', (tester) async {
       final state = createTestAppState();
       await tester.pumpWidget(wrapWithProviders(
         const FinanceScreen(),
@@ -62,11 +70,15 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // The "Recent activity" header should be present
-      expect(find.text('Recent activity'), findsOneWidget);
+      // Transactions appears in both tab bar and section header
+      expect(find.text('Transactions'), findsWidgets);
+      // Other tab labels appear only in the tab bar
+      expect(find.text('Insights'), findsOneWidget);
+      expect(find.text('Forecast'), findsOneWidget);
+      expect(find.text('Reports'), findsOneWidget);
     });
 
-    testWidgets('shows recent activity header', (tester) async {
+    testWidgets('shows empty state when no data in transactions', (tester) async {
       final state = createTestAppState();
       await tester.pumpWidget(wrapWithProviders(
         const FinanceScreen(),
@@ -74,8 +86,8 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // The "Recent activity" header should be present
-      expect(find.text('Recent activity'), findsOneWidget);
+      // Should show empty state message
+      expect(find.text('No transactions yet'), findsOneWidget);
     });
 
     testWidgets('tap on Log sale opens bottom sheet', (tester) async {
@@ -86,8 +98,8 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // Tap Log sale button
-      await tester.tap(find.text('Log sale'));
+      // Tap the first "Log sale" (the quick-action tile, not the empty-state CTA)
+      await tester.tap(find.text('Log sale').first);
       await tester.pumpAndSettle();
 
       // Should open a bottom sheet with "Quick sale" title
@@ -118,12 +130,12 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // Tap Expense quick action
-      await tester.tap(find.text('Expense'));
+      // Tap the first Expense quick action (avoid the empty-state duplicate)
+      await tester.tap(find.text('Expense').first);
       await tester.pumpAndSettle();
 
-      // Should open the expense sheet
-      expect(find.text('Log expense'), findsOneWidget);
+      // Should open the expense sheet (its title is "Log expense")
+      expect(find.text('Log expense'), findsAtLeastNWidgets(1));
     });
 
     testWidgets('quick action cards show correct subtitles', (tester) async {
@@ -148,13 +160,13 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // All three quick action icons should be present
-      expect(find.byIcon(Icons.payments), findsOneWidget);
-      expect(find.byIcon(Icons.description_outlined), findsOneWidget);
-      expect(find.byIcon(Icons.receipt_long), findsOneWidget);
+      // All three quick action icons should be present (outlined variants)
+      expect(find.byIcon(Icons.payments_outlined), findsAtLeastNWidgets(1));
+      expect(find.byIcon(Icons.description_outlined), findsAtLeastNWidgets(1));
+      expect(find.byIcon(Icons.receipt_long_outlined), findsAtLeastNWidgets(1));
     });
 
-    testWidgets('header shows avatar and timeline icon', (tester) async {
+    testWidgets('header shows avatar', (tester) async {
       final state = createTestAppState();
       await tester.pumpWidget(wrapWithProviders(
         const FinanceScreen(),
@@ -164,22 +176,6 @@ void main() {
 
       // Business avatar initials (from mock business 'Akwaaba Threads' = 'AT')
       expect(find.text('AT'), findsOneWidget);
-      // Timeline icon for cash flow forecast navigation
-      expect(find.byIcon(Icons.timeline), findsOneWidget);
-    });
-
-    testWidgets('monthly stats show count values', (tester) async {
-      final state = createTestAppState();
-      await tester.pumpWidget(wrapWithProviders(
-        const FinanceScreen(),
-        appState: state,
-      ));
-      await tester.pumpAndSettle();
-
-      // We just verify the labels are present
-      expect(find.text('Outstanding'), findsOneWidget);
-      expect(find.text('Received'), findsOneWidget);
-      expect(find.text('Spent'), findsOneWidget);
     });
 
     testWidgets('does not crash when financials are empty', (tester) async {
@@ -192,7 +188,7 @@ void main() {
 
       // Should render without errors even with empty financials
       expect(find.text('Finance'), findsOneWidget);
-      expect(find.text('Log sale'), findsOneWidget);
+      expect(find.text('Log sale'), findsAtLeastNWidgets(1));
     });
 
     testWidgets('logs sale flow: opens sheet and shows form', (tester) async {
@@ -203,8 +199,8 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // Tap Log sale
-      await tester.tap(find.text('Log sale'));
+      // Tap the first Log sale (quick-action tile)
+      await tester.tap(find.text('Log sale').first);
       await tester.pumpAndSettle();
 
       // Sale form should be visible
@@ -222,12 +218,12 @@ void main() {
       ));
       await tester.pumpAndSettle();
 
-      // Tap Expense
-      await tester.tap(find.text('Expense'));
+      // Tap the first Expense (quick-action tile)
+      await tester.tap(find.text('Expense').first);
       await tester.pumpAndSettle();
 
       // Expense form should be visible
-      expect(find.text('Log expense'), findsOneWidget);
+      expect(find.text('Log expense'), findsAtLeastNWidgets(1));
       expect(find.text('Amount (GHS)'), findsWidgets); // present in multiple sheets
       expect(find.text('Save expense'), findsOneWidget);
     });

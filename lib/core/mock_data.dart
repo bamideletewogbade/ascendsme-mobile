@@ -9,8 +9,7 @@ const kBusiness = Business(
   region: 'Greater Accra',
   tier: 'SME Suite Lite',
   initials: 'AT',
-  sustainabilityScore: 72,
-  creditScore: 684,
+  sustainabilityScore: 650, // Silver tier (595–721 on /850 scale)
   verified: true,
   monthlyRevenue: 18420,
   monthlyExpenses: 9840,
@@ -56,23 +55,18 @@ const kInvoices = [
   Invoice(id: 'INV-0138', customer: 'Linda Mensah',    amount: 540,  status: 'draft',   days: 0,  due: '—'),
 ];
 
-// ─── Verification ─────────────────────────────
+// ─── Verification (3-tier system matching web) ──────────────────────────────
+// Tier 1: Access (always unlocked)
+// Tier 2: Legitimacy — Ghana Card + RGD Certificate
+// Tier 3: Sustainability — TIN Certificate + Proof of Address + Bank Statements
 const kVerificationSteps = [
-  VerificationStep(id: 'v1', label: 'Business registration', status: 'verified', detail: 'RGD certificate'),
-  VerificationStep(id: 'v2', label: 'Tax identification',    status: 'verified', detail: 'GRA TIN'),
-  VerificationStep(id: 'v3', label: 'Bank account',          status: 'verified', detail: 'Stanbic •• 4421'),
-  VerificationStep(id: 'v4', label: 'Operating address',     status: 'pending',  detail: 'Awaiting GPS confirmation'),
-  VerificationStep(id: 'v5', label: 'Director ID',           status: 'todo',     detail: 'Upload Ghana Card'),
-  VerificationStep(id: 'v6', label: '6 months of revenue',   status: 'todo',     detail: 'Connect MoMo or bank'),
-];
-
-// ─── Funding ──────────────────────────────────
-const kFundingStages = [
-  FundingStage(id: 'f1', label: 'Diagnostic',          status: 'done',   detail: 'Completed Apr 3'),
-  FundingStage(id: 'f2', label: 'Bank-ready report',   status: 'active', detail: '4 of 7 items complete'),
-  FundingStage(id: 'f3', label: 'Lender matching',     status: 'todo',   detail: '5 lenders ready to review'),
-  FundingStage(id: 'f4', label: 'Application',         status: 'todo',   detail: ''),
-  FundingStage(id: 'f5', label: 'Disbursement',        status: 'todo',   detail: ''),
+  // Tier 2: Legitimacy
+  VerificationStep(id: 'v2_ghana_card', label: 'Ghana Card (Owner ID)', status: 'todo', detail: 'Upload a clear photo or scan of your Ghana Card', tier: 2),
+  VerificationStep(id: 'v2_rgd', label: 'Business Registration (RGD)', status: 'todo', detail: 'Upload your RGD Certificate', tier: 2),
+  // Tier 3: Sustainability
+  VerificationStep(id: 'v3_tin', label: 'Tax ID (TIN) Certificate', status: 'todo', detail: 'Upload your TIN Certificate from GRA', tier: 3),
+  VerificationStep(id: 'v3_address', label: 'Proof of Address', status: 'todo', detail: 'Upload GPS address or utility bill', tier: 3),
+  VerificationStep(id: 'v3_bank', label: 'Bank Statements', status: 'todo', detail: 'Upload 3 months of bank statements', tier: 3),
 ];
 
 // ─── Marketplace ──────────────────────────────
@@ -115,7 +109,7 @@ String buildBizContext([Business? biz, Financials? fin]) {
     '',
     // ── Business context ──
     'The user owns "${b.name}" (${b.industry}${b.city != '—' ? ', ${b.city}' : ''}).',
-    'Sustainability score: ${b.sustainabilityScore}/100 (${b.tier}).',
+    'Sustainability score: ${b.sustainabilityScore}/850 (${b.tier}).',
   ];
 
   if (f.revenueThisMonth > 0) {

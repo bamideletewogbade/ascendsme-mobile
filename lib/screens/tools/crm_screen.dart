@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -23,10 +24,10 @@ class CrmScreen extends StatefulWidget {
 class _CrmScreenState extends State<CrmScreen> {
   String _searchQuery = '';
   String _activeSegment = 'all';
+  String _sortBy = 'recent'; // 'name' | 'recent' | 'clv' | 'churn'
   List<CrmProfile> _crmProfiles = [];
   List<CustomerGroup> _groups = [];
   bool _loading = true;
-  bool _loadingGroups = true;
 
   @override
   void initState() {
@@ -104,6 +105,44 @@ class _CrmScreenState extends State<CrmScreen> {
               ),
               const SizedBox(height: 12),
 
+              // ── Health score bar ──
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 6,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: _healthScore(profile),
+                        child: Container(
+                          color: _healthColor(profile).withValues(alpha: 0.6),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 100 - _healthScore(profile),
+                        child: Container(color: c.bgInsetStrong),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Text(
+                    _healthLabel(profile),
+                    style: AppType.body(size: 11, weight: FontWeight.w600, color: _healthColor(profile)),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${_healthScore(profile)}% health',
+                    style: AppType.body(size: 10, color: c.textFaint),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
               // Tags / segments
               if (profile.smartSegments.isNotEmpty) ...[
                 Wrap(
@@ -117,14 +156,14 @@ class _CrmScreenState extends State<CrmScreen> {
                       'Open lead' => c.blue,
                       _ => c.teal,
                     };
-                    return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(99),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         color: segColor.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(99),
+                        child: Text(seg,
+                            style: AppType.body(size: 11, weight: FontWeight.w600, color: segColor)),
                       ),
-                      child: Text(seg,
-                          style: AppType.body(size: 11, weight: FontWeight.w600, color: segColor)),
                     );
                   }).toList(),
                 ),
@@ -186,20 +225,38 @@ class _CrmScreenState extends State<CrmScreen> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: _ContactBtn(
+                      icon: Icons.add_comment_outlined,
+                      label: 'Log',
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _showLogInteraction(profile);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _ContactBtn(
                       icon: Icons.person_outline,
                       label: 'Profile',
                       onTap: () {
                         Navigator.pop(ctx);
-                        final customer = Customer(
-                          id: profile.id,
-                          fullName: profile.customerName,
-                          phone: profile.customerPhone,
-                          email: profile.customerEmail,
+                        // Look up the real customer record by matching name
+                        // to get the correct customers.id (not the CRM profile id).
+                        final customers = context.read<AppState>().customers;
+                        final matching = customers.firstWhere(
+                          (c) => c.fullName.trim().toLowerCase() ==
+                              profile.customerName.trim().toLowerCase(),
+                          orElse: () => Customer(
+                            id: profile.id, // fallback to CRM profile id
+                            fullName: profile.customerName,
+                            phone: profile.customerPhone,
+                            email: profile.customerEmail,
+                          ),
                         );
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => CustomerDetailScreen(customer: customer),
+                            builder: (_) => CustomerDetailScreen(customer: matching),
                           ),
                         );
                       },
@@ -286,14 +343,13 @@ class _CrmScreenState extends State<CrmScreen> {
       ]);
       if (!mounted) return;
       setState(() {
-        _crmProfiles = (results[0] as List<Map<String, dynamic>>)
+        _crmProfiles = results[0]
             .map(CrmProfile.fromRow)
             .toList();
-        _groups = (results[1] as List<Map<String, dynamic>>)
+        _groups = results[1]
             .map(CustomerGroup.fromRow)
             .toList();
         _loading = false;
-        _loadingGroups = false;
       });
     } catch (_) {
       if (!mounted) return;
@@ -344,12 +400,211 @@ class _CrmScreenState extends State<CrmScreen> {
     return profiles;
   }
 
+  List<CrmProfile> get _sortedProfiles {
+    final profiles = List<CrmProfile>.from(_filteredProfiles);
+    switch (_sortBy) {
+      case 'name':
+        profiles.sort((a, b) => a.customerName.compareTo(b.customerName));
+      case 'clv':
+        profiles.sort((a, b) => b.customerLifetimeValueGhs.compareTo(a.customerLifetimeValueGhs));
+      case 'churn':
+        profiles.sort((a, b) => b.churnRiskScore.compareTo(a.churnRiskScore));
+      default: // 'recent'
+        profiles.sort((a, b) {
+          final aDate = a.lastInteractionDate ?? '';
+          final bDate = b.lastInteractionDate ?? '';
+          return bDate.compareTo(aDate);
+        });
+    }
+    return profiles;
+  }
+
   int get _atRiskCount =>
       _crmProfiles.where((p) => p.churnRiskScore >= 0.6).length;
   int get _highValueCount =>
       _crmProfiles.where((p) => p.customerLifetimeValueGhs >= 1000 || p.totalSpentGhs >= 1000).length;
-  double get _totalClv =>
-      _crmProfiles.fold(0.0, (s, p) => s + p.customerLifetimeValueGhs);
+  // ── Health score helpers ────────────────────────────────────────────────
+  /// Composite health score 0-100 factoring in recency, churn risk, and CLV.
+  int _healthScore(CrmProfile p) {
+    int score = 50;
+    // Recency: recently active = higher
+    if (p.lastInteractionDate != null) {
+      final last = DateTime.tryParse(p.lastInteractionDate!);
+      if (last != null) {
+        final daysSince = DateTime.now().difference(last).inDays;
+        if (daysSince < 7) score += 25;
+        else if (daysSince < 30) score += 15;
+        else if (daysSince < 90) score += 5;
+        else score -= 15;
+      }
+    } else {
+      score -= 10;
+    }
+    // Churn risk
+    if (p.churnRiskScore >= 0.6) score -= 25;
+    else if (p.churnRiskScore >= 0.3) score -= 10;
+    // CLV signals
+    if (p.customerLifetimeValueGhs >= 1000) score += 15;
+    else if (p.customerLifetimeValueGhs >= 200) score += 8;
+    // Orders
+    if (p.totalOrders >= 5) score += 10;
+    else if (p.totalOrders >= 2) score += 5;
+    return score.clamp(0, 100);
+  }
+
+  Color _healthColor(CrmProfile p) {
+    final s = _healthScore(p);
+    if (s >= 70) return context.colors.green;
+    if (s >= 40) return context.colors.amber;
+    return context.colors.rose;
+  }
+
+  String _healthLabel(CrmProfile p) {
+    final s = _healthScore(p);
+    if (s >= 70) return 'Healthy';
+    if (s >= 40) return 'Needs attention';
+    return 'At risk of churn';
+  }
+
+  /// Show a quick interaction logging dialog for a CRM profile.
+  void _showLogInteraction(CrmProfile profile) {
+    final bizId = context.read<AppState>().business.id;
+    if (bizId == null) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => GlassSheet(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SheetHandle(),
+              const SizedBox(height: 4),
+              Text('Log interaction with ${profile.customerName}',
+                  style: AppType.heading(size: 16, color: context.colors.text)),
+              const SizedBox(height: 4),
+              Text('Select the type of interaction to log',
+                  style: AppType.body(size: 12, color: context.colors.textMuted)),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _InteractionLogBtn(
+                    label: 'Call', icon: Icons.phone_outlined,
+                    color: context.colors.green,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _logSimpleInteraction(bizId, profile, 'call', 'Phone call made');
+                    },
+                  ),
+                  _InteractionLogBtn(
+                    label: 'WhatsApp', icon: Icons.chat_bubble_outline,
+                    color: context.colors.teal,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _logSimpleInteraction(bizId, profile, 'whatsapp', 'WhatsApp conversation');
+                    },
+                  ),
+                  _InteractionLogBtn(
+                    label: 'Email', icon: Icons.email_outlined,
+                    color: context.colors.blue,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _logSimpleInteraction(bizId, profile, 'email', 'Email sent/received');
+                    },
+                  ),
+                  _InteractionLogBtn(
+                    label: 'Meeting', icon: Icons.people_outline,
+                    color: context.colors.amber,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _logSimpleInteraction(bizId, profile, 'meeting', 'In-person meeting');
+                    },
+                  ),
+                  _InteractionLogBtn(
+                    label: 'Note', icon: Icons.notes_outlined,
+                    color: context.colors.textMuted,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showLogNoteDialog(bizId, profile);
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Log a quick interaction with a preset description.
+  void _logSimpleInteraction(String bizId, CrmProfile profile, String type, String description) {
+    unawaited(CrmService.addInteraction(
+      businessId: bizId,
+      customerProfileId: profile.id,
+      type: type,
+      description: description,
+    ));
+    _showSnackBar('${type[0].toUpperCase()}${type.substring(1)} interaction logged');
+    _load();
+  }
+
+  /// Show a dialog to enter a custom note for a CRM interaction.
+  void _showLogNoteDialog(String bizId, CrmProfile profile) {
+    final c = context.colors;
+    final ctrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: c.bgElevated,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Add note',
+            style: AppType.heading(size: 16, color: c.text)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          maxLines: 3,
+          decoration: InputDecoration(
+            hintText: 'Enter details…',
+            hintStyle: AppType.body(size: 13, color: c.textFaint),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+          style: AppType.body(size: 13, color: c.text),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text('Cancel',
+                style: AppType.body(size: 13, weight: FontWeight.w600, color: c.textMuted)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              if (ctrl.text.trim().isNotEmpty) {
+                unawaited(CrmService.addInteraction(
+                  businessId: bizId,
+                  customerProfileId: profile.id,
+                  type: 'note',
+                  description: ctrl.text.trim(),
+                ));
+                _showSnackBar('Note logged');
+                _load();
+              }
+            },
+            child: Text('Save',
+                style: AppType.body(size: 13, weight: FontWeight.w600, color: c.teal)),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _quickAddCustomer() async {
     final nameCtrl = TextEditingController();
@@ -426,7 +681,7 @@ class _CrmScreenState extends State<CrmScreen> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final state = context.watch<AppState>();
-    final filtered = _filteredProfiles;
+    final filtered = _sortedProfiles;
     final invoices = state.invoices;
 
     return Scaffold(
@@ -438,41 +693,35 @@ class _CrmScreenState extends State<CrmScreen> {
             padding: const EdgeInsets.only(bottom: 40),
             children: [
               // ── Header ──
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                child: Row(
+              SubScreenHeader(
+                'CRM',
+                onBack: () => Navigator.pop(context),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('CRM',
-                        style: AppType.display(size: 28, color: c.text)),
-                    const Spacer(),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        GestureDetector(
-                          onTap: () => _showBulkImport(context),
-                          child: Container(
-                            width: 36, height: 36,
-                            margin: const EdgeInsets.only(right: 8),
-                            decoration: BoxDecoration(
-                              color: c.bgInset,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: c.border),
-                            ),
-                            child: Icon(Icons.file_upload_outlined, size: 18, color: c.textMuted),
-                          ),
+                    GestureDetector(
+                      onTap: () => _showBulkImport(context),
+                      child: Container(
+                        width: 36, height: 36,
+                        margin: const EdgeInsets.only(right: 8),
+                        decoration: BoxDecoration(
+                          color: c.bgInset,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: c.border),
                         ),
-                        GestureDetector(
-                          onTap: _quickAddCustomer,
-                          child: Container(
-                            width: 36, height: 36,
-                            decoration: BoxDecoration(
-                              color: c.teal,
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.person_add, size: 18, color: Colors.white),
-                          ),
+                        child: Icon(Icons.file_upload_outlined, size: 18, color: c.textMuted),
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: _quickAddCustomer,
+                      child: Container(
+                        width: 36, height: 36,
+                        decoration: BoxDecoration(
+                          color: c.teal,
+                          borderRadius: BorderRadius.circular(10),
                         ),
-                      ],
+                        child: const Icon(Icons.person_add, size: 18, color: Colors.white),
+                      ),
                     ),
                   ],
                 ),
@@ -556,8 +805,9 @@ class _CrmScreenState extends State<CrmScreen> {
               // ── Group filter chips ──
               if (!_loading && _groups.isNotEmpty)
                 SizedBox(
-                  height: 34,
+                  height: 38,
                   child: ListView(
+                    clipBehavior: Clip.antiAlias,
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
                     children: [
@@ -579,8 +829,9 @@ class _CrmScreenState extends State<CrmScreen> {
               // ── Smart segment chips ──
               if (!_loading && _crmProfiles.isNotEmpty)
                 SizedBox(
-                  height: 34,
+                  height: 38,
                   child: ListView(
+                    clipBehavior: Clip.antiAlias,
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                     children: [
@@ -712,7 +963,9 @@ class _GroupChip extends StatelessWidget {
               const SizedBox(width: 4),
               Text(label,
                   style: AppType.body(size: 11.5, weight: FontWeight.w600,
-                      color: active ? Colors.white : c.textMuted)),
+                      color: active ? Colors.white : c.textMuted),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
               if (count > 0) ...[
                 const SizedBox(width: 3),
                 Container(
@@ -803,6 +1056,47 @@ class _MetricCard extends StatelessWidget {
   }
 }
 
+// ── Interaction log button ────────────────────────────────────────────────
+
+class _InteractionLogBtn extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _InteractionLogBtn({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: (MediaQuery.of(context).size.width - 72) / 3,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+        decoration: BoxDecoration(
+          color: c.bgInset,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: c.border),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, size: 22, color: color),
+            const SizedBox(height: 6),
+            Text(label,
+                style: AppType.body(size: 11.5, weight: FontWeight.w600, color: c.text)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ── Segment chip ──────────────────────────────────────────────────────────
 
 class _SegmentChip extends StatelessWidget {
@@ -829,7 +1123,9 @@ class _SegmentChip extends StatelessWidget {
               style: AppType.body(
                   size: 12,
                   weight: FontWeight.w600,
-                  color: active ? Colors.white : c.textMuted)),
+                  color: active ? Colors.white : c.textMuted),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
         ),
       ),
     );
@@ -871,9 +1167,11 @@ class _CrmCustomerRow extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text(profile.customerName,
-                        style: AppType.body(size: 13.5, weight: FontWeight.w600, color: c.text),
-                        overflow: TextOverflow.ellipsis),
+                    Expanded(
+                      child: Text(profile.customerName,
+                          style: AppType.body(size: 13.5, weight: FontWeight.w600, color: c.text),
+                          overflow: TextOverflow.ellipsis),
+                    ),
                     if (profile.churnRiskScore >= 0.6) ...[
                       const SizedBox(width: 4),
                       Icon(Icons.warning_amber_rounded, size: 13, color: c.rose),
@@ -900,14 +1198,14 @@ class _CrmCustomerRow extends StatelessWidget {
                           'Open lead' => c.blue,
                           _ => c.teal,
                         };
-                        return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
+                        return ClipRRect(
+                          borderRadius: BorderRadius.circular(99),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             color: segColor.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(99),
+                            child: Text(seg,
+                                style: AppType.body(size: 9.5, weight: FontWeight.w600, color: segColor)),
                           ),
-                          child: Text(seg,
-                              style: AppType.body(size: 9.5, weight: FontWeight.w600, color: segColor)),
                         );
                       }).toList(),
                     ),

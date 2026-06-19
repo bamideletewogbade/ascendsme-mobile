@@ -22,24 +22,6 @@ void main() {
     });
   });
 
-  group('formatChangePct', () {
-    test('returns null for null', () {
-      expect(formatChangePct(null), isNull);
-    });
-
-    test('formats positive with + prefix', () {
-      expect(formatChangePct(12.3), '+12%');
-      expect(formatChangePct(0.5), '+1%');
-    });
-
-    test('formats negative with - prefix', () {
-      expect(formatChangePct(-5.8), '-6%');
-    });
-
-    test('formats zero', () {
-      expect(formatChangePct(0.0), '0%');
-    });
-  });
 
   group('Business.fromRow', () {
     test('parses a full business row correctly', () {
@@ -55,7 +37,6 @@ void main() {
       expect(biz.tier, 'SME Suite Lite');
       expect(biz.initials, 'AT');
       expect(biz.sustainabilityScore, 72);
-      expect(biz.creditScore, 684);
       expect(biz.verified, true);
       expect(biz.monthlyRevenue, 0); // Not stored on businesses table
       expect(biz.scoreF, 70);
@@ -265,16 +246,12 @@ void main() {
         outstandingCount: 3,
         outstandingOverdueCount: 1,
         pipeline: 5000,
-        revenueChangePctVsLastMonth: 12.5,
-        expensesChangePctVsLastMonth: -3.2,
       );
       final map = f.toMap();
       final restored = Financials.fromMap(map);
       expect(restored.revenueThisMonth, 15000);
       expect(restored.expensesThisMonth, 8000);
       expect(restored.outstanding, 4200);
-      expect(restored.revenueChangePctVsLastMonth, 12.5);
-      expect(restored.expensesChangePctVsLastMonth, -3.2);
     });
 
     test('isEmpty detects zero fields', () {
@@ -434,36 +411,36 @@ void main() {
   });
 
   group('ScoreTier / getTier', () {
-    test('returns seedling for score < 30', () {
+    test('returns seedling for score < 255', () {
       expect(getTier(0).label, 'Seedling');
-      expect(getTier(29).label, 'Seedling');
+      expect(getTier(254).label, 'Seedling');
     });
 
-    test('returns sprout for 30-49', () {
-      expect(getTier(30).label, 'Sprout');
-      expect(getTier(49).label, 'Sprout');
+    test('returns sprout for 255-424', () {
+      expect(getTier(255).label, 'Sprout');
+      expect(getTier(424).label, 'Sprout');
     });
 
-    test('returns gold for 85-94', () {
-      expect(getTier(85).label, 'Gold');
-      expect(getTier(94).label, 'Gold');
+    test('returns gold for 722-806', () {
+      expect(getTier(722).label, 'Gold');
+      expect(getTier(806).label, 'Gold');
     });
 
-    test('returns indigo for 95+', () {
-      expect(getTier(95).label, 'Indigo');
-      expect(getTier(100).label, 'Indigo');
+    test('returns indigo for 807+', () {
+      expect(getTier(807).label, 'Indigo');
+      expect(getTier(850).label, 'Indigo');
     });
   });
 
   group('getNextTier', () {
     test('returns next tier above current score', () {
       expect(getNextTier(0)!.label, 'Sprout');
-      expect(getNextTier(30)!.label, 'Bronze');
-      expect(getNextTier(70)!.label, 'Gold');
+      expect(getNextTier(255)!.label, 'Bronze');
+      expect(getNextTier(722)!.label, 'Indigo');
     });
 
     test('returns null at max tier', () {
-      expect(getNextTier(100), isNull);
+      expect(getNextTier(850), isNull);
     });
   });
 

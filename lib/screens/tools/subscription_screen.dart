@@ -278,7 +278,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   ? const _LoadingState()
                   : _loadFailed
                       ? _ErrorState(onRetry: _loadData)
-                      : _buildBody(c, plans, currentTierCode, currentSub),
+                      : _buildBody(c, plans, currentTierCode, currentSub, state),
             ),
           ],
         ),
@@ -291,6 +291,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     List<SubscriptionPlan> plans,
     String currentTierCode,
     SubscriptionInfo? currentSub,
+    AppState state,
   ) {
     return RefreshIndicator(
       onRefresh: _refresh,
@@ -304,6 +305,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           currentSub: currentSub,
         ),
 
+        // ── Expired subscription banner ──
+        if (state.subscriptionExpired)
+          _buildExpiredBanner(c, state.subscriptionExpiredTier),
+
         if (currentSub != null && currentTierCode != 'free') ...[
           const SizedBox(height: 12),
           // ── Cancel subscription ──
@@ -313,7 +318,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               onPressed: _processing ? null : _cancelSubscription,
               icon: const Icon(Icons.cancel_outlined, size: 16),
               label: Text(
-                _processing ? 'Processing…' : 'Cancel subscription',
+                _processing ? 'Processing\u2026' : 'Cancel subscription',
                 style: AppType.body(
                   size: 12,
                   color: c.rose,
@@ -335,7 +340,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
 
         // ── Billing period toggle ──
         if (plans.any((p) => p.priceMonthly > 0))
-          _buildPeriodToggle(c),
+          _buildPeriodToggle(c, plans),
 
         if (plans.any((p) => p.priceMonthly > 0))
           const SizedBox(height: 20),
@@ -362,10 +367,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           AppBtn(
             _buttonLabel(currentSub, plans),
             full: true,
-            icon: _selectedTierId != null &&
-                    _isDowngrade(currentSub, plans)
-                ? 'arrow_downward'
-                : 'north_east',
+            icon: !_processing ? _btnIcon(currentSub, plans) : null,
             onTap: _processing ? null : _confirmUpgrade,
           ),
         ],
@@ -383,7 +385,75 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     ));
   }
 
-  Widget _buildPeriodToggle(AppColorsX c) {
+  Widget _buildExpiredBanner(AppColorsX c, String? expiredTierCode) {
+    final tierName = switch (expiredTierCode) {
+      'lite' => 'SME Suite Lite',
+      'plus' => 'SME Suite Plus',
+      'elite' => 'SME Suite Elite',
+      _ => 'previous',
+    };
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.amber.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.amber.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.info_outline_rounded, size: 18, color: Colors.amber.shade700),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Your $tierName plan has expired',
+                    style: AppType.body(
+                      size: 13,
+                      color: Colors.amber.shade900,
+                      weight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Renew now to continue enjoying premium features.',
+                    style: AppType.body(
+                      size: 12,
+                      color: Colors.amber.shade800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPeriodToggle(AppColorsX c, List<SubscriptionPlan> plans) {
+    // Calculate max savings based on the most expensive (non-free) tier
+    int calcSavings(BillingPeriod period) {
+      final paidPlans = plans.where((p) => p.priceMonthly > 0).toList();
+      if (paidPlans.isEmpty) return 0;
+      final maxPlan = paidPlans.reduce((a, b) =>
+          a.priceMonthly > b.priceMonthly ? a : b);
+      final monthlyPrice = maxPlan.priceMonthly;
+      if (period == BillingPeriod.quarterly) {
+        final qPrice = maxPlan.priceQuarterly ?? monthlyPrice * 3;
+        return ((monthlyPrice * 3 - qPrice) * 100 ~/ (monthlyPrice * 3));
+      }
+      if (period == BillingPeriod.yearly) {
+        final yPrice = maxPlan.priceYearly ?? monthlyPrice * 12;
+        return ((monthlyPrice * 12 - yPrice) * 100 ~/ (monthlyPrice * 12));
+      }
+      return 0;
+    }
+
     return Row(
       children: [
         _PeriodToggle(
@@ -397,13 +467,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           active: _selectedPeriod == BillingPeriod.quarterly,
           onTap: () =>
               setState(() => _selectedPeriod = BillingPeriod.quarterly),
+          badge: 'Save ~${calcSavings(BillingPeriod.quarterly)}%',
         ),
         const SizedBox(width: 8),
         _PeriodToggle(
           label: 'Yearly',
           active: _selectedPeriod == BillingPeriod.yearly,
           onTap: () => setState(() => _selectedPeriod = BillingPeriod.yearly),
-          badge: 'Save 20%',
+          badge: 'Save up to ${calcSavings(BillingPeriod.yearly)}%',
         ),
       ],
     );
@@ -433,14 +504,42 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     );
   }
 
-  /// Contextual button label: "Subscribe" for free → paid, "Confirm upgrade"
-  /// for paid → more expensive, "Confirm downgrade" for paid → cheaper.
+  /// Contextual button label matching web's UX:
+  /// - "Current Plan" (disabled) for the currently active tier
+  /// - "Free Forever" for the free tier
+  /// - "Subscribe Now" for free → paid
+  /// - "Confirm upgrade" / "Confirm downgrade" for plan switches
   String _buttonLabel(SubscriptionInfo? currentSub,
       List<SubscriptionPlan> plans) {
-    if (_processing) return 'Processing…';
-    if (currentSub == null || currentSub.tierCode == 'free') return 'Subscribe';
+    if (_processing) return 'Processing\u2026';
+
+    final selectedPlan = plans.where((p) => p.id == _selectedTierId).firstOrNull;
+    if (selectedPlan == null) return 'Subscribe Now';
+
+    // Current plan — show "Current Plan" disabled
+    if (_isCurrentPlan(selectedPlan, currentSub)) return 'Current Plan';
+
+    // Free tier — show "Free Forever"
+    if (selectedPlan.priceMonthly == 0) return 'Free Forever';
+
+    // Free -> paid
+    if (currentSub == null || currentSub.tierCode == 'free') return 'Subscribe Now';
+
+    // Paid plan switch
     if (_isDowngrade(currentSub, plans)) return 'Confirm downgrade';
     return 'Confirm upgrade';
+  }
+
+  /// Icon for the confirm button. Returns null for Current Plan.
+  String? _btnIcon(SubscriptionInfo? currentSub,
+      List<SubscriptionPlan> plans) {
+    final selectedPlan = plans.where((p) => p.id == _selectedTierId).firstOrNull;
+    if (selectedPlan == null) return null;
+    if (_isCurrentPlan(selectedPlan, currentSub)) return null;
+    if (selectedPlan.priceMonthly == 0) return null;
+    if (currentSub == null || currentSub.tierCode == 'free') return 'north_east';
+    if (_isDowngrade(currentSub, plans)) return 'arrow_downward';
+    return 'north_east';
   }
 
   /// True when the selected plan is cheaper than the current plan.
@@ -656,6 +755,32 @@ class _PlanCard extends StatelessWidget {
     };
   }
 
+  /// Format number with commas (e.g., "1,500").
+  String _fmt(int n) =>
+      n.toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+(?!\d))'), (m) => '${m[1]},');
+
+  /// Savings amount compared to monthly billing.
+  int? get _savingsVsMonthly {
+    if (plan.priceMonthly <= 0) return null;
+    if (billingPeriod == BillingPeriod.monthly) return null;
+    final monthlyTotal = plan.priceMonthly *
+        (billingPeriod == BillingPeriod.quarterly ? 3 : 12);
+    final periodPrice = _price;
+    final saved = monthlyTotal - periodPrice;
+    return saved > 0 ? saved : null;
+  }
+
+  /// Per-month equivalent for quarterly/yearly display.
+  int? get _perMonthEquiv {
+    if (plan.priceMonthly <= 0) return null;
+    if (billingPeriod == BillingPeriod.monthly) return null;
+    final months = billingPeriod == BillingPeriod.quarterly ? 3 : 12;
+    return (_price / months).round();
+  }
+
+  /// True when this is the "Most Popular" tier (matching web's choice of 'plus').
+  bool get _isPopular => plan.tierCode == 'plus';
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -663,22 +788,54 @@ class _PlanCard extends StatelessWidget {
         ? c.teal
         : isCurrent
             ? c.green.withValues(alpha: 0.4)
-            : c.border;
+            : _isPopular
+                ? c.teal.withValues(alpha: 0.5)
+                : c.border;
 
     return GestureDetector(
       onTap: onSelect,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(18),
+        padding: EdgeInsets.fromLTRB(18, _isPopular ? 24 : 18, 18, 18),
         decoration: BoxDecoration(
           color: c.bgElevated,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: borderColor, width: isSelected ? 2 : 1),
-          boxShadow: isSelected ? AppShadows.card : null,
+          border: Border.all(
+            color: borderColor,
+            width: isSelected ? 2 : (_isPopular ? 1.5 : 1),
+          ),
+          boxShadow: _isPopular
+              ? [BoxShadow(
+                  color: c.teal.withValues(alpha: 0.08),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                )]
+              : isSelected
+                  ? AppShadows.card
+                  : null,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── Most Popular badge ──
+            if (_isPopular)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: c.teal,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Most Popular',
+                  style: AppType.body(
+                    size: 11,
+                    color: Colors.white,
+                    weight: FontWeight.w700,
+                  ),
+                ),
+              ),
+
             Row(
               children: [
                 Expanded(
@@ -690,16 +847,17 @@ class _PlanCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                if (plan.priceMonthly > 0)
+
+            // ── Pricing ──
+            if (plan.priceMonthly > 0) ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
                   RichText(
                     text: TextSpan(
                       children: [
                         TextSpan(
-                          text:
-                              'GHS ${_price.toString().replaceAllMapped(RegExp(r'(\\d)(?=(\\d{3})+(?!\\d))'), (m) => '${m[1]},')}',
+                          text: 'GHS ${_fmt(_price)}',
                           style: AppType.display(size: 26, color: c.text),
                         ),
                         TextSpan(
@@ -708,17 +866,74 @@ class _PlanCard extends StatelessWidget {
                         ),
                       ],
                     ),
-                  )
-                else
-                  Text('Free',
-                      style: AppType.display(size: 26, color: c.text)),
+                  ),
+                ],
+              ),
+
+              // ── Savings breakdown (quarterly/yearly) ──
+              if (_savingsVsMonthly != null) ...[
+                const SizedBox(height: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: c.green.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.savings_outlined, size: 12, color: c.green),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Save GHS ${_fmt(_savingsVsMonthly!)} vs monthly',
+                        style: AppType.body(
+                          size: 10,
+                          color: c.green,
+                          weight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_perMonthEquiv != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    'GHS ${_fmt(_perMonthEquiv!)}/month billed ${billingPeriod == BillingPeriod.quarterly ? 'quarterly' : 'annually'}',
+                    style: AppType.body(size: 11, color: c.textFaint),
+                  ),
+                ],
               ],
-            ),
+            ] else ...[
+              // Free tier
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: 'GHS 0',
+                          style: AppType.display(size: 26, color: c.text),
+                        ),
+                        TextSpan(
+                          text: ' Forever',
+                          style: AppType.body(size: 13, color: c.textMuted),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+
+            // ── Description ──
             if (plan.description != null && plan.description!.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(plan.description!,
                   style: AppType.body(size: 12.5, color: c.textMuted)),
             ],
+
+            // ── Features divider & list ──
             if (plan.features.isNotEmpty) ...[
               const SizedBox(height: 14),
               Container(height: 1, color: c.border),
@@ -764,7 +979,7 @@ class _LoadingState extends StatelessWidget {
                 valueColor: AlwaysStoppedAnimation(c.teal)),
           ),
           const SizedBox(height: 12),
-          Text('Loading plans…',
+          Text('Loading plans\u2026',
               style: AppType.body(size: 13, color: c.textMuted)),
         ],
       ),

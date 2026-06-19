@@ -2,8 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'helpers.dart';
 import '../lib/state/app_state.dart';
-import '../lib/core/models.dart';
-import '../lib/services/app_logger.dart';
 
 void main() {
   setUpAll(() {
@@ -165,6 +163,94 @@ void main() {
       final state = createTestAppState();
       // Should not throw for empty queue
       await state.processPendingMutations();
+    });
+  });
+
+  group('AppState — logo upload/remove', () {
+    test('uploadBusinessLogo returns null when Supabase not configured', () async {
+      final state = createTestAppState();
+      final url = await state.uploadBusinessLogo(
+        fileBytes: [1, 2, 3],
+        fileName: 'logo.png',
+        fileType: 'image/png',
+      );
+      expect(url, isNull);
+    });
+
+    test('removeBusinessLogo does not throw when Supabase not configured', () async {
+      final state = createTestAppState();
+      // Should complete without error (early return)
+      await state.removeBusinessLogo();
+    });
+  });
+
+  group('AppState — notification preferences', () {
+    test('defaults to all notifications enabled', () {
+      final state = createTestAppState();
+      expect(state.notifyInvoiceReminders, true);
+      expect(state.notifyPaymentReceived, true);
+      expect(state.notifyExpenseReminders, true);
+    });
+
+    test('setNotifyInvoiceReminders updates value and notifies', () {
+      final state = createTestAppState();
+      var notified = false;
+      state.addListener(() => notified = true);
+
+      state.setNotifyInvoiceReminders(false);
+      expect(state.notifyInvoiceReminders, false);
+      expect(notified, true);
+    });
+
+    test('setNotifyPaymentReceived updates value and notifies', () {
+      final state = createTestAppState();
+      state.setNotifyPaymentReceived(false);
+      expect(state.notifyPaymentReceived, false);
+
+      state.setNotifyPaymentReceived(true);
+      expect(state.notifyPaymentReceived, true);
+    });
+
+    test('setNotifyExpenseReminders updates value and notifies', () {
+      final state = createTestAppState();
+      state.setNotifyExpenseReminders(false);
+      expect(state.notifyExpenseReminders, false);
+    });
+
+    test('preferences loaded from SharedPreferences on init', () async {
+      // Simulate previously saved preferences
+      await SharedPreferences.getInstance().then((prefs) {
+        prefs.setBool('ascend_notify_invoice_reminders', false);
+        prefs.setBool('ascend_notify_payment_received', true);
+        prefs.setBool('ascend_notify_expense_reminders', false);
+      });
+
+      // Create a fresh state that loads from SharedPreferences in constructor
+      // The _loadNotifyPrefs is called as unawaited in the constructor, so we
+      // need to wait for it to complete
+      final state = createTestAppState();
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(state.notifyInvoiceReminders, false);
+      expect(state.notifyPaymentReceived, true);
+      expect(state.notifyExpenseReminders, false);
+    });
+
+    test('toggling all prefs independently works', () {
+      final state = createTestAppState();
+
+      state.setNotifyInvoiceReminders(false);
+      state.setNotifyPaymentReceived(false);
+      state.setNotifyExpenseReminders(false);
+      expect(state.notifyInvoiceReminders, false);
+      expect(state.notifyPaymentReceived, false);
+      expect(state.notifyExpenseReminders, false);
+
+      state.setNotifyInvoiceReminders(true);
+      state.setNotifyExpenseReminders(true);
+      expect(state.notifyInvoiceReminders, true);
+      expect(state.notifyPaymentReceived, false); // still false
+      expect(state.notifyExpenseReminders, true);
     });
   });
 }

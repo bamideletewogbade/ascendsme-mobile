@@ -35,6 +35,7 @@ class AppConfig {
   // Vertex AI uses Firebase Auth — no API key needed.
   static const String groqApiKey       = ''; // Llama 3.3 / Llama 3.1 (fast LPU, free)
   static const String openRouterApiKey = ''; // :free models + openrouter/free router
+  static const String opencodeApiKey   = ''; // opencode.ai/zen — Nemotron 3 Ultra + DeepSeek V4 Flash (free)
 
   // ── Supabase ──────────────────────────────────────────────────────────────
   static const String supabaseUrl      = ''; // e.g. https://xxxx.supabase.co

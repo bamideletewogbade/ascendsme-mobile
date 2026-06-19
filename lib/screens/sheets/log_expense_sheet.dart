@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:file_picker/file_picker.dart';
 import '../../core/expense_mapping.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
@@ -39,6 +41,10 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
   // 'cash' | 'momo' | 'bank' — required NOT NULL on the expenses table.
   String _paymentSource = 'cash';
 
+  // ── Receipt image attachment ──
+  PlatformFile? _selectedImage;
+  File? _selectedImageFile;
+
   bool _saving = false;
   String? _error;
   bool _saved = false;
@@ -54,6 +60,29 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
     final raw = _amountCtrl.text.trim().replaceAll(',', '');
     if (raw.isEmpty) return null;
     return num.tryParse(raw);
+  }
+
+  Future<void> _pickReceiptImage() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      allowMultiple: false,
+      withData: true,
+    );
+    if (result != null && result.files.isNotEmpty) {
+      setState(() {
+        _selectedImage = result.files.first;
+        _selectedImageFile = _selectedImage!.path != null
+            ? File(_selectedImage!.path!)
+            : null;
+      });
+    }
+  }
+
+  void _clearReceiptImage() {
+    setState(() {
+      _selectedImage = null;
+      _selectedImageFile = null;
+    });
   }
 
   Future<void> _pickDate() async {
@@ -103,6 +132,22 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
       return;
     }
 
+    // Upload receipt image first (if selected)
+    String? attachmentUrl;
+    if (_selectedImage != null && _selectedImage!.bytes != null) {
+      final safeName = _selectedImage!.name
+          .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+      final url = await SupabaseService.uploadExpenseReceipt(
+        businessId: businessId,
+        fileBytes: _selectedImage!.bytes!,
+        fileName: safeName,
+        fileType: _selectedImage!.extension ?? 'image/jpeg',
+      );
+      if (url != null) {
+        attachmentUrl = url;
+      }
+    }
+
     try {
       await SupabaseService.createExpense(
         businessId: businessId,
@@ -111,6 +156,7 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
         description: _descCtrl.text.trim(),
         category: _category,
         paymentSource: _paymentSource,
+        attachmentUrl: attachmentUrl,
       );
 
       if (!mounted) return;
@@ -171,10 +217,11 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
   }
 
   Widget _buildForm(AppColorsX c) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    return SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
         const SheetHandle(),
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
@@ -355,6 +402,106 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
 
         const SizedBox(height: 14),
 
+        // ── Receipt image attachment ──
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Receipt (optional)',
+                  style: AppType.body(
+                      size: 11.5,
+                      weight: FontWeight.w600,
+                      color: c.textMuted)),
+              const SizedBox(height: 8),
+              if (_selectedImage != null && _selectedImageFile != null) ...[
+                Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(
+                        _selectedImageFile!,
+                        height: 120,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => Container(
+                          height: 120,
+                          decoration: BoxDecoration(
+                            color: c.bgInset,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Center(
+                            child: Icon(Icons.image_outlined,
+                                size: 32, color: c.textFaint),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: 4,
+                      right: 4,
+                      child: GestureDetector(
+                        onTap: _clearReceiptImage,
+                        child: Container(
+                          width: 28,
+                          height: 28,
+                          decoration: const BoxDecoration(
+                            color: Colors.black54,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.close,
+                              size: 16, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+              GestureDetector(
+                onTap: _pickReceiptImage,
+                child: Container(
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: c.bg,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: _selectedImage != null ? c.teal : c.border,
+                      width: _selectedImage != null ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _selectedImage != null
+                            ? Icons.image_outlined
+                            : Icons.camera_alt_outlined,
+                        size: 18,
+                        color: _selectedImage != null ? c.teal : c.textMuted,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _selectedImage != null
+                            ? 'Receipt attached'
+                            : 'Attach receipt photo',
+                        style: AppType.body(
+                          size: 13,
+                          weight: FontWeight.w600,
+                          color:
+                              _selectedImage != null ? c.teal : c.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 14),
+
         // Date
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -434,14 +581,15 @@ class _LogExpenseSheetState extends State<LogExpenseSheet> {
                     width: 24,
                     height: 24,
                     child: CircularProgressIndicator(
-                      strokeWidth: 2.5,                        valueColor: AlwaysStoppedAnimation(c.teal),
+                      strokeWidth: 2.5,
+                      valueColor: AlwaysStoppedAnimation(c.teal),
                     ),
                   ),
                 )
               : AppBtn('Save expense', full: true, onTap: _save),
         ),
       ],
-    );
+    ));
   }
 
   Widget _buildSaved(AppColorsX c) {

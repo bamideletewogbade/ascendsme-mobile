@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../../core/models.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
-import '../../core/widgets/customer_selector.dart';
 import '../../services/supabase_service.dart';
 import '../../state/app_state.dart';
 
@@ -105,7 +104,7 @@ class _EditProformaSheetState extends State<EditProformaSheet> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text('Edit quote',
+                    child: Text('Edit proforma',
                         style: AppType.heading(size: 18, color: c.text)),
                   ),
                   AppBtn('Save',
@@ -211,7 +210,7 @@ class _EditProformaSheetState extends State<EditProformaSheet> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Changes are saved to the quote. '
+                            'Changes are saved to the proforma. '
                             'Convert to invoice when ready.',
                             style:
                                 AppType.body(size: 12, color: c.textMuted),

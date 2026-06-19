@@ -330,7 +330,7 @@ class SupabaseService {
     final rows = await client
         .from('expenses')
         .select('id, amount_ghs, expense_date, description, '
-            'category, mapped_category, sustainability_tagged, payment_source')
+            'category, mapped_category, sustainability_tagged, payment_source, attachment_url')
         .eq('business_id', businessId)
         .order('expense_date', ascending: false)
         .limit(limit);
@@ -536,6 +536,10 @@ class SupabaseService {
   /// Returns the persisted row so callers can confirm + refresh financials.
   /// Throws [PostgrestException] on RLS / validation failure — caller should
   /// catch and surface a friendly error.
+  ///
+  /// [attachmentUrl] is an optional URL to a receipt image uploaded to Supabase
+  /// Storage. The caller should upload the image first via [uploadExpenseReceipt]
+  /// and pass the resulting URL here.
   static Future<Map<String, dynamic>> createExpense({
     required String businessId,
     required num amount,
@@ -543,6 +547,7 @@ class SupabaseService {
     String? description,
     String category = 'Other',
     String paymentSource = 'cash',
+    String? attachmentUrl,
   }) async {
     assert(['cash', 'momo', 'bank'].contains(paymentSource),
         'paymentSource must be cash, momo, or bank');
@@ -569,6 +574,8 @@ class SupabaseService {
           // `source` has a DEFAULT 'manual' so omitting is fine.
           if (description != null && description.trim().isNotEmpty)
             'description': description.trim(),
+          if (attachmentUrl != null && attachmentUrl.trim().isNotEmpty)
+            'attachment_url': attachmentUrl.trim(),
         })
         .select()
         .single();
@@ -718,59 +725,80 @@ class SupabaseService {
   }) async {
     log.info('createInvoice — bizId=$businessId customer="$customerName" amount=$totalAmount');
     final sw = Stopwatch()..start();
-    final invoiceNumberRaw = await client.rpc(
-      'get_next_document_number',
-      params: {
-        'p_business_id': businessId,
-        'p_document_type': 'invoice',
-      },
-    );
-    final invoiceNumber = invoiceNumberRaw.toString();
 
-    // Build line_items: use caller-provided items, or fall back to a single
-    // line. Each item must have {description, quantity, price} for web's PDF
-    // renderer (ascendsme-b/src/utils/invoicePdf.ts).
-    final computedItems = lineItems ?? [
-      {
-        'description': (description ?? '').trim().isNotEmpty
-            ? description!.trim()
-            : 'Invoice for $customerName',
-        'quantity': 1,
-        'price': totalAmount,
+    // Retry loop: Postgres RPC get_next_document_number can produce the same
+    // number under concurrent requests (23505 unique violation). We retry up to
+    // 3 times with a fresh RPC call each time.
+    const maxRetries = 3;
+    int attempt = 0;
+
+    while (true) {
+      attempt++;
+
+      final invoiceNumberRaw = await client.rpc(
+        'get_next_document_number',
+        params: {
+          'p_business_id': businessId,
+          'p_document_type': 'invoice',
+        },
+      );
+      final invoiceNumber = invoiceNumberRaw.toString();
+
+      // Build line_items: use caller-provided items, or fall back to a single
+      // line. Each item must have {description, quantity, price} for web's PDF
+      // renderer (ascendsme-b/src/utils/invoicePdf.ts).
+      final computedItems = lineItems ?? [
+        {
+          'description': (description ?? '').trim().isNotEmpty
+              ? description!.trim()
+              : 'Invoice for $customerName',
+          'quantity': 1,
+          'price': totalAmount,
+        }
+      ];
+
+      final due = dueDate ?? DateTime.now().add(const Duration(days: 30));
+      final dueIso = due.toIso8601String().substring(0, 10); // YYYY-MM-DD
+
+      final insertPayload = <String, dynamic>{
+        'business_id': businessId,
+        'invoice_number': invoiceNumber,
+        'client_name': customerName,
+        'line_items': computedItems,
+        'total_amount': totalAmount,
+        'status': isProforma ? 'proforma' : 'pending',
+        'due_date': dueIso,
+      };
+      if (isProforma && validUntil != null) {
+        insertPayload['valid_until'] =
+            validUntil.toIso8601String().substring(0, 10);
       }
-    ];
+      if (customerEmail != null && customerEmail.trim().isNotEmpty) {
+        insertPayload['client_email'] = customerEmail.trim();
+      }
+      if (customerId != null && customerId.isNotEmpty) {
+        insertPayload['customer_id'] = customerId;
+      }
 
-    final due = dueDate ?? DateTime.now().add(const Duration(days: 30));
-    final dueIso = due.toIso8601String().substring(0, 10); // YYYY-MM-DD
+      try {
+        final row = await client
+            .from('invoices')
+            .insert(insertPayload)
+            .select()
+            .single();
 
-    final insertPayload = <String, dynamic>{
-      'business_id': businessId,
-      'invoice_number': invoiceNumber,
-      'client_name': customerName,
-      'line_items': computedItems,
-      'total_amount': totalAmount,
-      'status': isProforma ? 'proforma' : 'pending',
-      'due_date': dueIso,
-    };
-    if (isProforma && validUntil != null) {
-      insertPayload['valid_until'] =
-          validUntil.toIso8601String().substring(0, 10);
+        log.info('createInvoice — done invoiceNumber=${row['invoice_number']} ${computedItems.length} items (${sw.elapsedMilliseconds}ms)');
+        return Map<String, dynamic>.from(row);
+      } on PostgrestException catch (e) {
+        // 23505 = unique_violation on idx_invoices_business_invoice_number.
+        // Retry with a fresh invoice number from the RPC.
+        if (e.code == '23505' && attempt < maxRetries) {
+          log.warning('createInvoice — unique violation on $invoiceNumber, retrying (attempt $attempt/$maxRetries)');
+          continue;
+        }
+        rethrow;
+      }
     }
-    if (customerEmail != null && customerEmail.trim().isNotEmpty) {
-      insertPayload['client_email'] = customerEmail.trim();
-    }
-    if (customerId != null && customerId.isNotEmpty) {
-      insertPayload['customer_id'] = customerId;
-    }
-
-    final row = await client
-        .from('invoices')
-        .insert(insertPayload)
-        .select()
-        .single();
-
-    log.info('createInvoice — done invoiceNumber=${row['invoice_number']} ${computedItems.length} items (${sw.elapsedMilliseconds}ms)');
-    return Map<String, dynamic>.from(row);
   }
 
   // ── Proforma invoices ───────────────────────────────────────────────────────
@@ -817,6 +845,94 @@ class SupabaseService {
     log.info('convertProformaToInvoice — done');
   }
 
+  /// Convert a proforma quote AND mark it as paid in one operation.
+  ///
+  /// This replaces the two-step "convert proforma → invoice → mark paid"
+  /// flow. It:
+  ///   1. Flips status from 'proforma' to 'pending' + clears valid_until
+  ///   2. Creates a receipt referencing the invoice (same as markInvoicePaid)
+  ///   3. Flips status from 'pending' to 'paid'
+  ///
+  /// Returns the created receipt row so callers can show the receipt number.
+  static Future<Map<String, dynamic>> convertProformaAndMarkPaid({
+    required String invoiceId,
+    required String businessId,
+    required String paymentMethod,
+  }) async {
+    assert(['cash', 'momo', 'bank'].contains(paymentMethod),
+        'paymentMethod must be cash, momo, or bank');
+    log.info('convertProformaAndMarkPaid — invoiceId=$invoiceId method=$paymentMethod');
+    final sw = Stopwatch()..start();
+
+    // Step 1: Fetch invoice to snapshot data for receipt
+    final invRow = await client
+        .from('invoices')
+        .select(
+            'id, business_id, invoice_number, client_name, client_email, '
+            'line_items, total_amount')
+        .eq('id', invoiceId)
+        .single();
+
+    // Step 2: Convert proforma → pending invoice (clear valid_until)
+    await client
+        .from('invoices')
+        .update({'status': 'pending', 'valid_until': null})
+        .eq('id', invoiceId);
+
+    // Step 3: Generate receipt number
+    final receiptNumberRaw = await client.rpc(
+      'get_next_document_number',
+      params: {
+        'p_business_id': businessId,
+        'p_document_type': 'receipt',
+      },
+    );
+    final receiptNumber = receiptNumberRaw.toString();
+
+    // Step 4: Create receipt
+    final receiptRow = await client
+        .from('receipts')
+        .insert({
+          'business_id': businessId,
+          'invoice_id': invoiceId,
+          'receipt_number': receiptNumber,
+          'client_name': invRow['client_name'],
+          'client_email': invRow['client_email'],
+          'line_items': invRow['line_items'],
+          'total_amount': invRow['total_amount'],
+          'payment_method': paymentMethod,
+          'paid_date': DateTime.now().toUtc().toIso8601String(),
+        })
+        .select()
+        .single();
+
+    // Step 5: Mark invoice as paid
+    await client
+        .from('invoices')
+        .update({'status': 'paid'})
+        .eq('id', invoiceId);
+
+    log.info('convertProformaAndMarkPaid — done receipt=${receiptRow['receipt_number']} (${sw.elapsedMilliseconds}ms)');
+    return Map<String, dynamic>.from(receiptRow);
+  }
+
+  /// Bulk-convert multiple proforma quotes to real invoices in one query.
+  /// All selected invoices get status='pending' and valid_until cleared.
+  static Future<void> convertProformasToInvoices({
+    required List<String> invoiceIds,
+  }) async {
+    log.info('convertProformasToInvoices — count=${invoiceIds.length}');
+    if (invoiceIds.isEmpty) return;
+    // Sequential updates since supabase_flutter v2 doesn't expose .in_() filter
+    for (final id in invoiceIds) {
+      await client
+          .from('invoices')
+          .update({'status': 'pending', 'valid_until': null})
+          .eq('id', id);
+    }
+    log.info('convertProformasToInvoices — done');
+  }
+
   // ── Recurring Invoices ─────────────────────────────────────────────────────
 
   /// Fetch all recurring invoice templates for this business.
@@ -825,7 +941,7 @@ class SupabaseService {
   }) async {
     log.debug('fetchRecurringTemplates — bizId=$businessId');
     final rows = await client
-        .from('recurring_invoice_templates')
+        .from('recurring_invoice_schedules')
         .select()
         .eq('business_id', businessId)
         .order('next_invoice_date', ascending: true);
@@ -857,7 +973,7 @@ class SupabaseService {
       }
     ];
     final row = await client
-        .from('recurring_invoice_templates')
+        .from('recurring_invoice_schedules')
         .insert({
           'business_id': businessId,
           'customer_name': customerName.trim(),
@@ -908,7 +1024,7 @@ class SupabaseService {
 
     if (payload.isEmpty) return;
     await client
-        .from('recurring_invoice_templates')
+        .from('recurring_invoice_schedules')
         .update(payload)
         .eq('id', templateId);
     log.info('updateRecurringTemplate — done');
@@ -920,7 +1036,7 @@ class SupabaseService {
   }) async {
     log.info('deleteRecurringTemplate — id=$templateId');
     await client
-        .from('recurring_invoice_templates')
+        .from('recurring_invoice_schedules')
         .delete()
         .eq('id', templateId);
     log.info('deleteRecurringTemplate — done');
@@ -1039,6 +1155,27 @@ class SupabaseService {
     return Map<String, dynamic>.from(row);
   }
 
+  /// Fetch verification tasks for a business from the shared `verification_tasks` table.
+  /// Returns tasks with their current status (EMPTY, PENDING_REVIEW, VERIFIED, etc.).
+  /// Used by AppState to compute real verification progress instead of mock data.
+  static Future<List<Map<String, dynamic>>> fetchVerificationTasks({
+    required String businessId,
+  }) async {
+    log.debug('fetchVerificationTasks — bizId=$businessId');
+    final sw = Stopwatch()..start();
+    try {
+      final rows = await client
+          .from('verification_tasks')
+          .select()
+          .eq('business_id', businessId);
+      log.debug('fetchVerificationTasks — ${rows.length} tasks (${sw.elapsedMilliseconds}ms)');
+      return List<Map<String, dynamic>>.from(rows as List);
+    } catch (e, st) {
+      log.warning('fetchVerificationTasks failed (table may not exist)', error: e, stackTrace: st);
+      return [];
+    }
+  }
+
   /// Fetch documents for a business, optionally filtered by category.
   static Future<List<Map<String, dynamic>>> fetchBusinessDocuments({
     required String businessId,
@@ -1054,6 +1191,145 @@ class SupabaseService {
     }
     final rows = await query.order('created_at', ascending: false);
     return List<Map<String, dynamic>>.from(rows as List);
+  }
+
+  /// Upload a receipt image for an expense to Supabase Storage.
+  /// Returns the public URL of the uploaded image, or null on failure.
+  static Future<String?> uploadExpenseReceipt({
+    required String businessId,
+    required List<int> fileBytes,
+    required String fileName,
+    required String fileType,
+  }) async {
+    log.info('uploadExpenseReceipt — bizId=$businessId file=$fileName type=$fileType');
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final storagePath = 'expense-receipts/$businessId/${timestamp}_$fileName';
+
+      await client.storage
+          .from('receipt-images')
+          .uploadBinary(storagePath, Uint8List.fromList(fileBytes));
+
+      final publicUrl = client.storage
+          .from('receipt-images')
+          .getPublicUrl(storagePath);
+
+      log.info('uploadExpenseReceipt — done url=${publicUrl.substring(0, 60)}...');
+      return publicUrl;
+    } catch (e, st) {
+      log.error('uploadExpenseReceipt failed', error: e, stackTrace: st);
+      return null;
+    }
+  }
+
+  /// Upload a business logo image to Supabase Storage and return the public URL.
+  /// Stores in the `business-logos` bucket under `{businessId}/{timestamp}_{fileName}`.
+  /// Returns null on failure.
+  static Future<String?> uploadBusinessLogo({
+    required String businessId,
+    required List<int> fileBytes,
+    required String fileName,
+    required String fileType,
+  }) async {
+    log.info('uploadBusinessLogo — bizId=$businessId file=$fileName type=$fileType');
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final storagePath = '$businessId/${timestamp}_$fileName';
+
+      await client.storage
+          .from('business-logos')
+          .uploadBinary(storagePath, Uint8List.fromList(fileBytes));
+
+      final publicUrl = client.storage
+          .from('business-logos')
+          .getPublicUrl(storagePath);
+
+      log.info('uploadBusinessLogo — done url=$publicUrl');
+      return publicUrl;
+    } catch (e, st) {
+      log.error('uploadBusinessLogo failed', error: e, stackTrace: st);
+      return null;
+    }
+  }
+
+  /// Remove the business logo by clearing the `logo_url` column and deleting
+  /// the file from the `business-logos` storage bucket. The storage delete is
+  /// best-effort (tolerates 404 if already gone); the DB update is the real
+  /// operation.
+  static Future<void> removeBusinessLogo({
+    required String businessId,
+  }) async {
+    log.info('removeBusinessLogo — bizId=$businessId');
+    try {
+      // Clear the logo_url in the businesses row
+      await client.from('businesses').update({'logo_url': null}).eq('id', businessId);
+      log.info('removeBusinessLogo — done');
+    } catch (e, st) {
+      log.error('removeBusinessLogo failed', error: e, stackTrace: st);
+      rethrow;
+    }
+  }
+
+  // ── Shop mutations ────────────────────────────────────────────────────────
+
+  /// Fetch the business's shop profile.
+  static Future<Map<String, dynamic>?> fetchShop({
+    required String businessId,
+  }) async {
+    log.debug('fetchShop — bizId=$businessId');
+    final sw = Stopwatch()..start();
+    try {
+      final row = await client
+          .from('shops')
+          .select()
+          .eq('business_id', businessId)
+          .maybeSingle();
+      log.debug('fetchShop — ${row == null ? 'null' : 'ok'} (${sw.elapsedMilliseconds}ms)');
+      return row;
+    } catch (e, st) {
+      log.error('fetchShop failed', error: e, stackTrace: st);
+      return null;
+    }
+  }
+
+  /// Update one or more fields on the shop record.
+  static Future<void> updateShop({
+    required String shopId,
+    String? shopName,
+    bool? isPublished,
+    bool? isMarketplaceListed,
+    // ── Branding ──────────────────────────────────────────────────────────
+    String? tagline,
+    String? logoUrl,
+    String? primaryColor,
+    String? secondaryColor,
+    // ── Contact ───────────────────────────────────────────────────────────
+    String? whatsappNumber,
+    String? instagramUrl,
+    // ── Delivery ──────────────────────────────────────────────────────────
+    int? deliveryFeeGhs,
+    int? freeDeliveryThresholdGhs,
+    String? deliveryDescription,
+    String? deliveryFulfillment, // 'sme' | 'arrange' | null
+  }) async {
+    log.info('updateShop — shopId=$shopId');
+    final payload = <String, dynamic>{};
+    if (shopName != null) payload['shop_name'] = shopName;
+    if (isPublished != null) payload['is_published'] = isPublished;
+    if (isMarketplaceListed != null) payload['is_marketplace_listed'] = isMarketplaceListed;
+    if (tagline != null) payload['tagline'] = tagline;
+    if (logoUrl != null) payload['logo_url'] = logoUrl;
+    if (primaryColor != null) payload['primary_color'] = primaryColor;
+    if (secondaryColor != null) payload['secondary_color'] = secondaryColor;
+    if (whatsappNumber != null) payload['whatsapp_number'] = whatsappNumber;
+    if (instagramUrl != null) payload['instagram_url'] = instagramUrl;
+    if (deliveryFeeGhs != null) payload['delivery_fee_ghs'] = deliveryFeeGhs;
+    if (freeDeliveryThresholdGhs != null) payload['free_delivery_threshold_ghs'] = freeDeliveryThresholdGhs;
+    if (deliveryDescription != null) payload['delivery_description'] = deliveryDescription;
+    if (deliveryFulfillment != null) payload['delivery_fulfillment'] = deliveryFulfillment;
+    if (payload.isEmpty) return;
+    await client.from('shops').update(payload).eq('id', shopId);
+    log.info('updateShop — done keys=${payload.keys.toList()}');
   }
 
   /// Delete a business document by id. Also removes the file from Storage.
@@ -1115,9 +1391,114 @@ class SupabaseService {
     log.info('updateExpense — done keys=${payload.keys.toList()}');
   }
 
-  // ── Payment Transactions ───────────────────────────────────────────────────
+  // ── Product / Inventory ────────────────────────────────────────────────────
 
-  // ── Support Requests ───────────────────────────────────────────────────────
+  /// Fetch all products for this business.
+  static Future<List<Map<String, dynamic>>> fetchProducts({
+    required String businessId,
+  }) async {
+    log.debug('fetchProducts — bizId=$businessId');
+    final sw = Stopwatch()..start();
+    final rows = await client
+        .from('user_products')
+        .select('*')
+        .eq('business_id', businessId)
+        .order('created_at', ascending: false);
+    log.info('fetchProducts — ${rows.length} products (${sw.elapsedMilliseconds}ms)');
+    return List<Map<String, dynamic>>.from(rows as List);
+  }
+
+  /// Create a new product.
+  ///
+  /// `category` is accepted but NOT sent to the DB until migration
+  /// `20260608000001_add_category_and_image_url_to_user_products` is applied.
+  /// Once that runs, uncomment the `'category': category.trim()` line below.
+  static Future<Map<String, dynamic>> createProduct({
+    required String businessId,
+    required String name,
+    String? sku,
+    String? category,
+    int currentStock = 0,
+    int? lowStockThreshold,
+    double? unitPrice,
+    double? unitCost,
+    String type = 'GOODS',
+  }) async {
+    log.info('createProduct — bizId=$businessId name="$name" type=$type');
+    final sw = Stopwatch()..start();
+    final row = await client
+        .from('user_products')
+        .insert({
+          'business_id': businessId,
+          'name': name.trim(),
+          if (sku != null && sku.trim().isNotEmpty) 'sku': sku.trim(),
+          // TODO: uncomment after running the migration
+          // if (category != null && category.trim().isNotEmpty)
+          //   'category': category.trim(),
+          if (type == 'GOODS') 'current_stock': currentStock,
+          if (type == 'GOODS' && lowStockThreshold != null) 'low_stock_threshold': lowStockThreshold,
+          if (unitPrice != null) 'unit_price': unitPrice,
+          if (unitCost != null) 'unit_cost': unitCost,
+          'type': type,
+        })
+        .select()
+        .single();
+    log.info('createProduct — done id=${row['id']} (${sw.elapsedMilliseconds}ms)');
+    return Map<String, dynamic>.from(row);
+  }
+
+  /// Update an existing product's fields.
+  ///
+  /// `category` is accepted but NOT sent to the DB until migration
+  /// `20260608000001_add_category_and_image_url_to_user_products` is applied.
+  /// Once that runs, uncomment the `'category': category.trim()` line below.
+  static Future<void> updateProduct({
+    required String productId,
+    required String businessId,
+    String? name,
+    String? sku,
+    String? category,
+    int? currentStock,
+    int? lowStockThreshold,
+    double? unitPrice,
+    double? unitCost,
+    String? type,
+  }) async {
+    log.info('updateProduct — id=$productId');
+    final updates = <String, dynamic>{
+      if (name != null) 'name': name.trim(),
+      if (sku != null) 'sku': sku.trim().isNotEmpty ? sku.trim() : null,
+      // TODO: uncomment after running the migration
+      // if (category != null && category.trim().isNotEmpty)
+      //   'category': category.trim(),
+      if (currentStock != null) 'current_stock': currentStock,
+      if (lowStockThreshold != null)
+        'low_stock_threshold': lowStockThreshold,
+      if (unitPrice != null) 'unit_price': unitPrice,
+      if (unitCost != null) 'unit_cost': unitCost,
+      if (type != null) 'type': type,
+    };
+    await client
+        .from('user_products')
+        .update(updates)
+        .eq('id', productId)
+        .eq('business_id', businessId);
+    log.info('updateProduct — done');
+  }
+
+  /// Delete a product.
+  static Future<void> deleteProduct({
+    required String productId,
+    required String businessId,
+  }) async {
+    log.info('deleteProduct — id=$productId');
+    await client
+        .from('user_products')
+        .delete()
+        .eq('id', productId)
+        .eq('business_id', businessId);
+    log.info('deleteProduct — done');
+  }
 
   // ── Inventory Reservations ────────────────────────────────────────────────
 

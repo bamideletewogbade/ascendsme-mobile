@@ -4,6 +4,7 @@ import '../core/models.dart';
 import '../core/tokens.dart';
 import '../core/widgets/common.dart';
 import '../services/crm_service.dart';
+import '../services/supabase_service.dart';
 import '../state/app_state.dart';
 import 'customer_detail_screen.dart';
 
@@ -21,6 +22,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
   List<CustomerGroup> _groups = [];
   String _selectedGroup = 'all';
   String _searchQuery = '';
+  /// Customer names (lowercased) that belong to the selected group.
+  /// Null when "All" is selected (no group filter).
+  Set<String>? _groupCustomerNames;
 
   @override
   void didChangeDependencies() {
@@ -105,6 +109,53 @@ class _CustomersScreenState extends State<CustomersScreen> {
     _loadGroups();
   }
 
+  /// Fetch customer names that belong to [groupId] from the
+  /// customer_group_members + crm_profiles tables.
+  Future<void> _filterByGroup(String groupId) async {
+    setState(() {
+      _selectedGroup = groupId;
+      _groupCustomerNames = null; // clear while loading
+    });
+    if (groupId == 'all') return; // no group filter
+
+    try {
+      final members = await SupabaseService.client
+          .from('customer_group_members')
+          .select('crm_profile_id')
+          .eq('group_id', groupId);
+
+      final profileIds = (members as List)
+          .map((m) => (m as Map)['crm_profile_id'] as String?)
+          .whereType<String>()
+          .toList();
+
+      if (profileIds.isEmpty) {
+        if (!mounted) return;
+        setState(() => _groupCustomerNames = {});
+        return;
+      }
+
+      // Fetch CRM profiles to get customer names for filtering
+      final profiles = await SupabaseService.client
+          .from('crm_profiles')
+          .select('customer_name')
+          .inFilter('id', profileIds);
+
+      final names = (profiles as List)
+          .map((p) => (p as Map)['customer_name'] as String?)
+          .whereType<String>()
+          .map((n) => n.trim().toLowerCase())
+          .toSet();
+
+      if (!mounted) return;
+      setState(() => _groupCustomerNames = names);
+    } catch (e) {
+      if (!mounted) return;
+      // If the group query fails, show all customers (no filter).
+      setState(() => _groupCustomerNames = null);
+    }
+  }
+
   List<Customer> get _filteredCustomers {
     final state = context.read<AppState>();
     var customers = state.customers;
@@ -114,6 +165,12 @@ class _CustomersScreenState extends State<CustomersScreen> {
           c.fullName.toLowerCase().contains(q) ||
           (c.phone?.contains(q) ?? false) ||
           (c.email?.toLowerCase().contains(q) ?? false)).toList();
+    }
+    // Filter by selected group
+    if (_selectedGroup != 'all' && _groupCustomerNames != null) {
+      customers = customers
+          .where((c) => _groupCustomerNames!.contains(c.fullName.trim().toLowerCase()))
+          .toList();
     }
     return customers;
   }
@@ -129,7 +186,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
         .where((i) => i.status != 'paid' && i.status != 'void')
         .fold<int>(0, (s, i) => s + i.amount);
 
-    return SafeArea(
+    return Material(
+      color: c.bg,
+      child: SafeArea(
       bottom: false,
       child: ListView(
         padding: const EdgeInsets.only(bottom: 120),
@@ -140,7 +199,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
               children: [
                 GestureDetector(
                   onTap: widget.onOpenDrawer,
-                  child: AppAvatar(state.business.initials, size: 40),
+                  child: AppAvatar(state.business.initials, size: 40, imageUrl: state.business.logoUrl),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -212,13 +271,13 @@ class _CustomersScreenState extends State<CustomersScreen> {
                   _GroupChip(
                     label: 'All',
                     active: _selectedGroup == 'all',
-                    onTap: () => setState(() => _selectedGroup = 'all'),
+                    onTap: () => _filterByGroup('all'),
                   ),
                   ..._groups.map((g) => _GroupChip(
                         label: g.name,
                         count: g.memberCount,
                         active: _selectedGroup == g.id,
-                        onTap: () => setState(() => _selectedGroup = g.id),
+                        onTap: () => _filterByGroup(g.id),
                       )),
                   Padding(
                     padding: const EdgeInsets.only(left: 4),
@@ -335,7 +394,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
             ),
         ],
       ),
-    );
+    ));
   }
 }
 
@@ -388,7 +447,9 @@ class _GroupChip extends StatelessWidget {
                   style: AppType.body(
                       size: 12,
                       weight: FontWeight.w600,
-                      color: active ? Colors.white : c.textMuted)),
+                      color: active ? Colors.white : c.textMuted),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
               if (count != null) ...[
                 const SizedBox(width: 4),
                 Text('$count',

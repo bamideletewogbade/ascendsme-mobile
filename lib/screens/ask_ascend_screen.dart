@@ -165,7 +165,7 @@ class _AskAscendScreenState extends State<AskAscendScreen> {
                 if (widget.onOpenDrawer != null)
                   GestureDetector(
                     onTap: widget.onOpenDrawer,
-                    child: AppAvatar(state.business.initials, size: 38),
+                    child: AppAvatar(state.business.initials, size: 38, imageUrl: state.business.logoUrl),
                   ),
               ],
             ),
@@ -313,7 +313,7 @@ class _ChatBubble extends StatelessWidget {
           Flexible(
             child: Container(
               margin: const EdgeInsets.only(bottom: 12, right: 56),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
                 color: c.bgInset,
                 borderRadius: const BorderRadius.only(
@@ -323,8 +323,11 @@ class _ChatBubble extends StatelessWidget {
                   bottomRight: Radius.circular(16),
                 ),
               ),
-              child: Text(msg.text,
-                  style: AppType.body(size: 14, color: c.text)),
+              child: AiFormattedText(
+                text: msg.text,
+                baseColor: c.text,
+                highlightColor: c.teal,
+              ),
             ),
           ),
         ],

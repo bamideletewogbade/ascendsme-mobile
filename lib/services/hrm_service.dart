@@ -1,10 +1,5 @@
-/// HRM Service — wraps the `staff_members` table (shared with web).
-/// Mobile scope: list staff, add staff, update staff details, deactivate.
-/// No performance tracking, no payroll, no delegation metrics in this version.
-///
-/// Table: `staff_members`
-/// Columns used: id, business_id, user_id (null for mobile), staff_name,
-/// staff_email, staff_phone, role, salary_monthly_ghs, hire_date, is_active.
+// HRM Service — wraps the `staff_members` table (shared with web).
+// Now includes delegation metrics and ROI tracking.
 
 import 'app_logger.dart';
 import 'supabase_service.dart';
@@ -101,5 +96,60 @@ class HrmService {
         .eq('id', staffId)
         .eq('business_id', businessId);
     log.info('HrmService.deactivateStaff — done');
+  }
+
+  /// Calculate Delegation Index.
+  /// Measures how many tasks are assigned to staff vs the owner.
+  static Future<Map<String, dynamic>> calculateDelegationIndex(String businessId) async {
+    final sw = Stopwatch()..start();
+    
+    // 1. Get all projects/milestones for this business
+    final projects = await SupabaseService.client
+        .from('project_milestones')
+        .select('id')
+        .eq('business_id', businessId);
+    
+    final projectIds = (projects as List).map((p) => p['id']).toList();
+    if (projectIds.isEmpty) return {'percentage': 0.0, 'index': 0.0};
+
+    // 2. Get all tasks for these projects
+    final tasks = await SupabaseService.client
+        .from('project_tasks')
+        .select('assigned_to_user_id')
+        .inFilter('milestone_id', projectIds);
+    
+    final taskList = List<Map<String, dynamic>>.from(tasks as List);
+    if (taskList.isEmpty) return {'percentage': 0.0, 'index': 0.0};
+
+    // 3. Get active staff
+    final staffRows = await SupabaseService.client
+        .from('staff_members')
+        .select('id, user_id')
+        .eq('business_id', businessId)
+        .eq('is_active', true);
+    
+    final activeStaff = List<Map<String, dynamic>>.from(staffRows as List);
+    final staffIds = activeStaff.map((s) => s['id']).toSet();
+    final staffUserIds = activeStaff.map((s) => s['user_id']).whereType<String>().toSet();
+
+    var delegatedCount = 0;
+    for (final task in taskList) {
+      final assignee = task['assigned_to_user_id'];
+      if (assignee != null && (staffIds.contains(assignee) || staffUserIds.contains(assignee))) {
+        delegatedCount++;
+      }
+    }
+
+    final percentage = (delegatedCount / taskList.length) * 100;
+    final staffMultiplier = (activeStaff.length / 5.0).clamp(0.0, 1.0);
+    final index = (percentage / 100.0) * staffMultiplier;
+
+    log.info('HrmService.calculateDelegationIndex — index=${index.toStringAsFixed(2)} (${sw.elapsedMilliseconds}ms)');
+    return {
+      'percentage': percentage,
+      'index': index,
+      'total_tasks': taskList.length,
+      'delegated_tasks': delegatedCount,
+    };
   }
 }

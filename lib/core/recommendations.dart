@@ -93,6 +93,43 @@ List<Recommendation> buildRecommendations({
     ));
   }
 
+  // ── Expiring proformas — proactively surface before they go stale ──────
+  final now = DateTime.now();
+  final expiringSoon = invoices
+      .where((i) =>
+          i.isProforma &&
+          i.validUntil != null &&
+          i.validUntil!.isAfter(now) &&
+          i.validUntil!.difference(now).inDays <= 7)
+      .toList();
+  if (expiringSoon.length >= 2) {
+    final total = expiringSoon.fold<num>(0, (s, i) => s + i.amount);
+    recs.add(Recommendation(
+      id: 'rec_convert_expiring',
+      priority: 'urgent',
+      title:
+          '${expiringSoon.length} proformas expiring soon — worth ${formatGHS(total)}',
+      why:
+          'Converting these expiring proformas to invoices now can recover revenue that might otherwise be lost. Follow up with customers before the deadline.',
+      cta: 'Convert expiring',
+      minutes: 3,
+      impact: formatGHS(total),
+    ));
+  } else if (expiringSoon.length == 1) {
+    final q = expiringSoon.first;
+    recs.add(Recommendation(
+      id: 'rec_convert_expiring',
+      priority: 'urgent',
+      title:
+          'Proforma for ${q.customer} (${formatGHS(q.amount)}) expires ${q.validUntil!.difference(now).inDays} day${q.validUntil!.difference(now).inDays == 1 ? '' : 's'}',
+      why:
+          'This proforma will expire soon. Following up now could turn it into paid work before the deadline passes.',
+      cta: 'Follow up',
+      minutes: 2,
+      impact: formatGHS(q.amount),
+    ));
+  }
+
   // ── Everything's covered ───────────────────────────────────────────────
   // Better than showing nothing, which can read as "empty / broken."
   if (recs.isEmpty) {

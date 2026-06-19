@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import '../../core/models.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
+import '../../core/share_utils.dart';
+import '../../services/invoice_pdf_service.dart';
 import '../../state/app_state.dart';
 import 'invoice_detail_screen.dart';
 
@@ -22,6 +24,109 @@ class ReceiptDetailScreen extends StatelessWidget {
     required this.receipt,
     required this.rawRow,
   });
+
+  void _toastVia(ScaffoldMessengerState messenger, AppColorsX c, String message) {
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message,
+            style: AppType.body(size: 13, color: Colors.white)),
+        backgroundColor: c.tealDeep,
+        behavior: SnackBarBehavior.floating,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  Future<void> _shareOnWhatsApp(
+      BuildContext context, Receipt receipt) async {
+    final state = context.read<AppState>();
+    final biz = state.business;
+    final amount = formatGHS(receipt.totalAmount);
+    final msg = ShareUtils.receiptMessage(
+      customer: receipt.clientName ?? 'Customer',
+      amount: amount,
+      businessName: biz.name,
+      receiptNumber: receipt.receiptNumber,
+    );
+    await ShareUtils.shareViaWhatsApp(message: msg, context: context);
+  }
+
+  Future<void> _previewPdf(
+      BuildContext context, Receipt receipt,
+      List<InvoiceLineItem> lineItems) async {
+    try {
+      final state = context.read<AppState>();
+      final biz = state.business;
+      await InvoicePdfService.previewReceipt(
+        receipt: receipt,
+        businessName: biz.name,
+        businessHandle: biz.handle,
+        businessCity: biz.city,
+        businessRegion: biz.region,
+        logoUrl: biz.logoUrl,
+        verified: biz.verified,
+        lineItems: lineItems,
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      _toastVia(ScaffoldMessenger.of(context), context.colors,
+          'Could not preview PDF. Try again.');
+    }
+  }
+
+  Future<void> _shareAsPdf(
+      BuildContext context, Receipt receipt,
+      List<InvoiceLineItem> lineItems) async {
+    try {
+      final state = context.read<AppState>();
+      final biz = state.business;
+      await InvoicePdfService.shareReceipt(
+        receipt: receipt,
+        businessName: biz.name,
+        businessHandle: biz.handle,
+        businessCity: biz.city,
+        businessRegion: biz.region,
+        logoUrl: biz.logoUrl,
+        verified: biz.verified,
+        lineItems: lineItems,
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      _toastVia(ScaffoldMessenger.of(context), context.colors,
+          'Could not generate PDF. Try again.');
+    }
+  }
+
+  Future<void> _downloadPdf(
+      BuildContext context, Receipt receipt,
+      List<InvoiceLineItem> lineItems) async {
+    try {
+      final state = context.read<AppState>();
+      final biz = state.business;
+      final path = await InvoicePdfService.downloadReceipt(
+        receipt: receipt,
+        businessName: biz.name,
+        businessHandle: biz.handle,
+        businessCity: biz.city,
+        businessRegion: biz.region,
+        logoUrl: biz.logoUrl,
+        verified: biz.verified,
+        lineItems: lineItems,
+      );
+      if (path != null && context.mounted) {
+        _toastVia(ScaffoldMessenger.of(context), context.colors,
+            'PDF saved: ${path.split('/').last}');
+      } else if (context.mounted) {
+        _toastVia(ScaffoldMessenger.of(context), context.colors,
+            'Could not save PDF. Try again.');
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      _toastVia(ScaffoldMessenger.of(context), context.colors,
+          'Download failed. Try again.');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +153,18 @@ class ReceiptDetailScreen extends StatelessWidget {
             .toList()
         : <InvoiceLineItem>[];
 
+    // Find the related invoice number from state if available
+    final String? relatedInvoiceNumber;
+    if (receipt.invoiceId != null) {
+      final inv = state.invoices.cast<Invoice?>().firstWhere(
+            (inv) => inv?.backendId == receipt.invoiceId,
+            orElse: () => null,
+          );
+      relatedInvoiceNumber = inv?.id;
+    } else {
+      relatedInvoiceNumber = null;
+    }
+
     return Scaffold(
       backgroundColor: c.bg,
       body: SafeArea(
@@ -70,20 +187,75 @@ class ReceiptDetailScreen extends StatelessWidget {
                   const SizedBox(height: 16),
 
                   // ── Payment details ──
-                  _PaymentCard(receipt: receipt),
+                  _PaymentCard(receipt: receipt, relatedInvoiceNumber: relatedInvoiceNumber),
                   const SizedBox(height: 16),
 
                   // ── Line items ──
                   if (lineItems.isNotEmpty) ...[
                     _LineItemsCard(lineItems: lineItems, totalAmount: receipt.totalAmount),
                     const SizedBox(height: 16),
+                  ] else if (receipt.isInvoicePayment && relatedInvoice != null) ...[
+                    // Show line items from the related invoice if receipt doesn't have its own
+                    _RelatedInvoiceLineItems(invoice: relatedInvoice!),
+                    const SizedBox(height: 16),
                   ],
 
-                  // ── Related invoice ──
+                  // ── Related invoice link ──
                   if (relatedInvoice != null) ...[
                     _RelatedInvoiceCard(invoice: relatedInvoice!),
                     const SizedBox(height: 16),
                   ],
+
+                  // ── Share & download actions ──
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Column(
+                      children: [
+                        AppBtn(
+                          'Share on WhatsApp',
+                          full: true,
+                          icon: 'share',
+                          variant: BtnVariant.secondary,
+                          fontSize: 12.5,
+                          onTap: () => _shareOnWhatsApp(context, receipt),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: AppBtn(
+                                'Preview',
+                                icon: 'visibility',
+                                variant: BtnVariant.secondary,
+                                fontSize: 11.5,
+                                onTap: () => _previewPdf(context, receipt, lineItems),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: AppBtn(
+                                'Share PDF',
+                                icon: 'description',
+                                variant: BtnVariant.secondary,
+                                fontSize: 11.5,
+                                onTap: () => _shareAsPdf(context, receipt, lineItems),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: AppBtn(
+                                'Download',
+                                icon: 'download',
+                                variant: BtnVariant.outline,
+                                fontSize: 11.5,
+                                onTap: () => _downloadPdf(context, receipt, lineItems),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -243,8 +415,9 @@ class _CustomerCard extends StatelessWidget {
 
 class _PaymentCard extends StatelessWidget {
   final Receipt receipt;
+  final String? relatedInvoiceNumber;
 
-  const _PaymentCard({required this.receipt});
+  const _PaymentCard({required this.receipt, this.relatedInvoiceNumber});
 
   @override
   Widget build(BuildContext context) {
@@ -260,9 +433,9 @@ class _PaymentCard extends StatelessWidget {
             const SizedBox(height: 10),
             _MetaRow(label: 'Receipt number', value: receipt.receiptNumber!, c: c),
           ],
-          if (receipt.isInvoicePayment) ...[
+          if (receipt.isInvoicePayment && relatedInvoiceNumber != null) ...[
             const SizedBox(height: 10),
-            _MetaRow(label: 'Invoice ID', value: receipt.invoiceId ?? '—', c: c),
+            _MetaRow(label: 'Invoice', value: relatedInvoiceNumber!, c: c),
           ],
         ],
       ),
@@ -315,11 +488,10 @@ class _LineItemsCard extends StatelessWidget {
         children: [
           Text('Items',
               style: AppType.label(size: 10, color: c.textMuted)),
-          const SizedBox(height: 10),
-          for (var i = 0; i < lineItems.length; i++) ...[
+          const SizedBox(height: 10),          for (var i = 0; i < lineItems.length; i++) ...[
             if (i > 0) ...[
               const SizedBox(height: 6),
-              Divider(color: c.border, height: 1),
+              Container(height: 1, color: c.border),
               const SizedBox(height: 6),
             ],
             Row(
@@ -345,7 +517,7 @@ class _LineItemsCard extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 8),
-          Divider(color: c.borderStrong, height: 1),
+          Container(height: 1, color: c.borderStrong),
           const SizedBox(height: 8),
           Row(
             children: [
@@ -357,6 +529,82 @@ class _LineItemsCard extends StatelessWidget {
                         color: c.text)),
               ),
               Text(formatGHS(totalAmount),
+                  style: AppType.body(
+                      size: 14,
+                      weight: FontWeight.w700,
+                      color: c.green)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Related invoice line items (fallback when receipt has no line_items) ───
+
+class _RelatedInvoiceLineItems extends StatelessWidget {
+  final Invoice invoice;
+
+  const _RelatedInvoiceLineItems({required this.invoice});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final items = invoice.lineItems.isEmpty
+        ? [InvoiceLineItem(description: 'Invoice for ${invoice.customer}', amount: invoice.amount)]
+        : invoice.lineItems;
+    final total = invoice.amount;
+
+    return AppCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Items from invoice',
+              style: AppType.label(size: 10, color: c.textMuted)),
+          const SizedBox(height: 10),
+          for (var i = 0; i < items.length; i++) ...[
+            if (i > 0) ...[
+              const SizedBox(height: 6),
+              Container(height: 1, color: c.border),
+              const SizedBox(height: 6),
+            ],
+            Row(
+              children: [
+                Expanded(
+                  child: Text(items[i].description,
+                      style: AppType.body(size: 13, color: c.text),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis),
+                ),
+                const SizedBox(width: 8),
+                if (items[i].qtyLabel != null) ...[
+                  Text(items[i].qtyLabel!,
+                      style: AppType.body(size: 11, color: c.textFaint)),
+                  const SizedBox(width: 8),
+                ],
+                Text(formatGHS(items[i].amount),
+                    style: AppType.body(
+                        size: 13,
+                        weight: FontWeight.w600,
+                        color: c.text)),
+              ],
+            ),
+          ],
+          const SizedBox(height: 8),
+          Container(height: 1, color: c.borderStrong),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: Text('Total',
+                    style: AppType.body(
+                        size: 14,
+                        weight: FontWeight.w700,
+                        color: c.text)),
+              ),
+              Text(formatGHS(total),
                   style: AppType.body(
                       size: 14,
                       weight: FontWeight.w700,

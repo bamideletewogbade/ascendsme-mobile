@@ -16,9 +16,9 @@ import 'app_logger.dart';
 // Add, remove, or reorder entries to change the fallback chain:
 //
 //     static final List<_ModelAttempt> _models = [
-//       // Vertex AI (via Firebase — requires Firebase project + Vertex AI enabled)
-//       _VertexAIModel(model: 'gemini-2.0-flash'),
-//       _VertexAIModel(model: 'gemini-2.0-flash-lite'),
+//       // OpenCode Zen (free tier — trial-use)
+//       _OpenCodeModel(model: 'opencode/nemotron-3-ultra-free'),
+//       _OpenCodeModel(model: 'opencode/deepseek-v4-flash-free'),
 //
 //       // Groq (fast LPU inference, free developer tier — 1,000 TPM)
 //       _GroqModel(model: 'llama-3.3-70b-versatile'),
@@ -37,6 +37,7 @@ import 'app_logger.dart';
 class AIService {
   static const Duration _timeoutGroq = Duration(seconds: 15);
   static const Duration _timeoutOpenRouter = Duration(seconds: 20);
+  static const Duration _timeoutOpenCode = Duration(seconds: 20);
 
   /// Send a prompt with business context. Returns the AI response text or
   /// `'(AI unavailable — try again in a moment)'` if every model/provider in
@@ -188,6 +189,72 @@ class _GroqModel implements _ModelAttempt {
   }
 }
 
+// ── OpenCode Zen (free tier — Nemotron 3 Ultra, DeepSeek V4 Flash) ─────────
+
+class _OpenCodeModel implements _ModelAttempt {
+  final String model;
+  _OpenCodeModel({required this.model});
+
+  @override
+  String get name => 'opencode ($model)';
+
+  @override
+  bool get isConfigured => AppConfig.opencodeApiKey.isNotEmpty;
+
+  @override
+  Future<String> ask(String prompt) async {
+    final response = await http
+        .post(
+          Uri.parse('https://opencode.ai/zen/v1/chat/completions'),
+          headers: {
+            'Authorization': 'Bearer ${AppConfig.opencodeApiKey}',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'model': model,
+            'messages': [
+              {'role': 'user', 'content': prompt}
+            ],
+            'max_tokens': 256,
+            'temperature': 0.7,
+          }),
+        )
+        .timeout(AIService._timeoutOpenCode);
+    if (response.statusCode != 200) {
+      throw Exception('OpenCode ${response.statusCode}: ${response.body}');
+    }
+    final data = jsonDecode(response.body);
+    return ((data['choices'][0]['message']['content'] as String?) ?? '').trim();
+  }
+
+  @override
+  Future<String> parseInvoice(String systemPrompt, String description) async {
+    final resp = await http
+        .post(
+          Uri.parse('https://opencode.ai/zen/v1/chat/completions'),
+          headers: {
+            'Authorization': 'Bearer ${AppConfig.opencodeApiKey}',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'model': model,
+            'messages': [
+              {'role': 'system', 'content': systemPrompt},
+              {'role': 'user', 'content': description},
+            ],
+            'max_tokens': 60,
+            'temperature': 0,
+          }),
+        )
+        .timeout(AIService._timeoutOpenCode);
+    if (resp.statusCode != 200) {
+      throw Exception('OpenCode ${resp.statusCode}: ${resp.body}');
+    }
+    final data = jsonDecode(resp.body);
+    return (data['choices'][0]['message']['content'] as String?) ?? '';
+  }
+}
+
 // ── OpenRouter (free models via :free suffix + openrouter/free router) ──────
 
 class _OpenRouterModel implements _ModelAttempt {
@@ -264,11 +331,19 @@ class _OpenRouterModel implements _ModelAttempt {
 // Empty-keyed providers are skipped at runtime.
 //
 // Quick reference:
+//   OpenCode  → REST API /v1/chat/completions at opencode.ai/zen
+//               • Nemotron 3 Ultra + DeepSeek V4 Flash (free tier)
 //   Groq      → REST API /v1/chat/completions (free dev tier: 1,000 TPM/RPM)
 //   OpenRouter→ REST API /v1/chat/completions (free via :free suffix)
 //               • `openrouter/free` auto-routes to any available free model
 //
 final List<_ModelAttempt> _models = [
+  // ── OpenCode Zen (free tier) ─────────────────────────────────────────────
+  // Nemotron 3 Ultra is a powerful general-purpose model (trial-use free).
+  // DeepSeek V4 Flash is a fast fallback for coding and reasoning tasks.
+  _OpenCodeModel(model: 'opencode/nemotron-3-ultra-free'),
+  _OpenCodeModel(model: 'opencode/deepseek-v4-flash-free'),
+
   // ── Groq ─────────────────────────────────────────────────────────────────
   // Fast LPU inference. Free developer tier — generates text faster than
   // any other provider here.

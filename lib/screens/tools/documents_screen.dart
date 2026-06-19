@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/models.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../services/document_service.dart';
+import 'document_preview_screen.dart';
 import '../../services/app_logger.dart';
 import '../../state/app_state.dart';
 
@@ -398,9 +398,13 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                       full: true,
                       fontSize: 13,
                       onTap: () {
-                        Clipboard.setData(ClipboardData(text: doc.documentUrl));
                         Navigator.pop(ctx);
-                        _showSnackBar('Document URL copied to clipboard');
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => DocumentPreviewScreen(doc: doc),
+                          ),
+                        );
                       },
                     ),
                   ),

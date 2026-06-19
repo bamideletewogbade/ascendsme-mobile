@@ -20,14 +20,10 @@ class InventoryService {
   }) async {
     log.debug('InventoryService.fetchProducts — bizId=$businessId');
     final sw = Stopwatch()..start();
-    final rows = await SupabaseService.client
-        .from('user_products')
-        .select('*')
-        .eq('business_id', businessId)
-        .order('created_at', ascending: false);
+    final rows = await SupabaseService.fetchProducts(businessId: businessId);
     log.info(
         'InventoryService.fetchProducts — ${rows.length} products (${sw.elapsedMilliseconds}ms)');
-    return List<Map<String, dynamic>>.from(rows as List);
+    return rows;
   }
 
   /// Create a new product.
@@ -39,27 +35,25 @@ class InventoryService {
     int currentStock = 0,
     int? lowStockThreshold,
     double? unitPrice,
+    double? unitCost,
+    String type = 'GOODS',
   }) async {
-    log.info('InventoryService.createProduct — bizId=$businessId name="$name"');
+    log.info('InventoryService.createProduct — bizId=$businessId name="$name" type=$type');
     final sw = Stopwatch()..start();
-    final row = await SupabaseService.client
-        .from('user_products')
-        .insert({
-          'business_id': businessId,
-          'name': name.trim(),
-          if (sku != null && sku.trim().isNotEmpty) 'sku': sku.trim(),
-          if (category != null && category.trim().isNotEmpty)
-            'category': category.trim(),
-          'current_stock': currentStock,
-          if (lowStockThreshold != null) 'low_stock_threshold': lowStockThreshold,
-          if (unitPrice != null) 'unit_price': unitPrice,
-          'type': 'GOODS',
-        })
-        .select()
-        .single();
+    final row = await SupabaseService.createProduct(
+      businessId: businessId,
+      name: name,
+      sku: sku,
+      category: category,
+      currentStock: currentStock,
+      lowStockThreshold: lowStockThreshold,
+      unitPrice: unitPrice,
+      unitCost: unitCost,
+      type: type,
+    );
     log.info(
         'InventoryService.createProduct — done id=${row['id']} (${sw.elapsedMilliseconds}ms)');
-    return Map<String, dynamic>.from(row);
+    return row;
   }
 
   /// Update an existing product's fields.
@@ -72,23 +66,22 @@ class InventoryService {
     int? currentStock,
     int? lowStockThreshold,
     double? unitPrice,
+    double? unitCost,
+    String? type,
   }) async {
     log.info('InventoryService.updateProduct — id=$productId');
-    final updates = <String, dynamic>{
-      if (name != null) 'name': name.trim(),
-      if (sku != null) 'sku': sku.trim().isNotEmpty ? sku.trim() : null,
-      if (category != null && category.trim().isNotEmpty)
-        'category': category.trim(),
-      if (currentStock != null) 'current_stock': currentStock,
-      if (lowStockThreshold != null)
-        'low_stock_threshold': lowStockThreshold,
-      if (unitPrice != null) 'unit_price': unitPrice,
-    };
-    await SupabaseService.client
-        .from('user_products')
-        .update(updates)
-        .eq('id', productId)
-        .eq('business_id', businessId);
+    await SupabaseService.updateProduct(
+      productId: productId,
+      businessId: businessId,
+      name: name,
+      sku: sku,
+      category: category,
+      currentStock: currentStock,
+      lowStockThreshold: lowStockThreshold,
+      unitPrice: unitPrice,
+      unitCost: unitCost,
+      type: type,
+    );
     log.info('InventoryService.updateProduct — done');
   }
 
@@ -98,11 +91,10 @@ class InventoryService {
     required String businessId,
   }) async {
     log.info('InventoryService.deleteProduct — id=$productId');
-    await SupabaseService.client
-        .from('user_products')
-        .delete()
-        .eq('id', productId)
-        .eq('business_id', businessId);
+    await SupabaseService.deleteProduct(
+      productId: productId,
+      businessId: businessId,
+    );
     log.info('InventoryService.deleteProduct — done');
   }
 }

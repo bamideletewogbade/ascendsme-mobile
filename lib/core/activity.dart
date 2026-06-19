@@ -27,20 +27,26 @@ class ActivityEvent {
   });
 }
 
-enum ActivityKind { invoiceSent, invoicePaid, saleLogged, expenseLogged }
+enum ActivityKind { invoiceSent, invoicePaid, saleLogged, expenseLogged, quoteCreated, quoteExpired, quoteConverted }
 
-/// Build a unified, time-sorted activity feed from the three source streams.
+/// Build a unified, time-sorted activity feed from invoices, receipts,
+/// expenses, pipeline events (proforma creation + expiry), and conversion events.
 ///
 /// Dedup rule: when a receipt has `invoice_id` set, it represents the payment
 /// of an invoice we already surface as `invoicePaid`. We skip that receipt
 /// so the same event doesn't appear twice. Receipts with `invoice_id == null`
 /// are direct sales (Quick Sale) and get their own `saleLogged` entry.
+///
+/// [conversionEvents] are in-memory conversion records from AppState — they
+/// show "Proforma for X converted" events in the current session.
 List<ActivityEvent> buildActivityFeed({
   required List<Invoice> invoices,
   required List<Map<String, dynamic>> receipts,
   required List<Map<String, dynamic>> expenses,
+  List<Map<String, dynamic>> conversionEvents = const [],
   int limit = 8,
 }) {
+  final now = DateTime.now();
   final events = <ActivityEvent>[];
 
   // ── Invoices ────────────────────────────────────────────────────────────
@@ -119,6 +125,55 @@ List<ActivityEvent> buildActivityFeed({
       time: t,
       amount: amount,
       expenseId: e['id'] as String?,
+    ));
+  }
+
+  // ── Pipeline: proforma created events ────────────────────────────────
+  for (final inv in invoices) {
+    if (inv.status != 'proforma') continue;
+    if (inv.createdAt == null) continue;
+    // Skip proformas created >30 days ago to keep the feed focused.
+    if (inv.createdAt!.isBefore(now.subtract(const Duration(days: 30)))) continue;
+
+    events.add(ActivityEvent(
+      kind: ActivityKind.quoteCreated,
+      title: 'Proforma for ${inv.customer}',
+      subtitle: inv.validUntil != null
+          ? 'Expires ${formatLongDate(inv.validUntil!)}'
+          : null,
+      time: inv.createdAt!,
+      amount: inv.amount,
+      invoiceId: inv.backendId,
+    ));
+
+    // ── Pipeline: proforma expired events ───────────────────────────────
+    if (inv.validUntil != null && inv.validUntil!.isBefore(now)) {
+      events.add(ActivityEvent(
+        kind: ActivityKind.quoteExpired,
+        title: 'Proforma for ${inv.customer} expired',
+        subtitle: 'Was ${formatGHS(inv.amount)}',
+        time: inv.validUntil!,
+        amount: inv.amount,
+        invoiceId: inv.backendId,
+      ));
+    }
+  }
+
+  // ── Conversion events (in-memory, current session) ────────────────────────
+  for (final ev in conversionEvents) {
+    final timeStr = ev['time'] as String?;
+    if (timeStr == null) continue;
+    final t = DateTime.tryParse(timeStr);
+    if (t == null) continue;
+    final customer = ev['customerName'] as String? ?? 'Customer';
+    final amount = ev['amount'] as num? ?? 0;
+    events.add(ActivityEvent(
+      kind: ActivityKind.quoteConverted,
+      title: 'Proforma for $customer converted',
+      subtitle: null,
+      time: t,
+      amount: amount,
+      invoiceId: ev['invoiceId'] as String?,
     ));
   }
 

@@ -14,6 +14,9 @@ import '../services/hrm_service.dart';
 import '../services/cache_service.dart';
 import '../services/connectivity_service.dart';
 import '../services/sync_service.dart';
+import '../services/project_service.dart';
+import '../services/payroll_service.dart';
+import '../services/booking_service.dart' as svc;
 
 enum AppTab { home, finance, tools, profile, askAscend }
 
@@ -29,6 +32,9 @@ class AppState extends ChangeNotifier {
     required this.syncService,
   }) {
     _initOfflineListeners();
+    unawaited(_loadPeriod());
+    unawaited(_loadNotifyPrefs());
+    unawaited(_loadDarkMode());
   }
 
   bool _connectivityInitialized = false;
@@ -246,8 +252,8 @@ class AppState extends ChangeNotifier {
         _business = Business.fromRow(row);
         // Persist to cache for instant boot on next cold start.
         _cacheProfile(row);
-        // Subscribe to real-time inventory updates
-        _subscribeInventoryChannel();
+        // Subscribe to real-time updates for all data domains
+        _subscribeAllChannels();
         log.info('loadBusiness — loaded: id=${_business!.id} name="${_business!.name}" (${sw.elapsedMilliseconds}ms)');
       }
       notifyListeners();
@@ -257,6 +263,7 @@ class AppState extends ChangeNotifier {
         unawaited(loadReceipts());
         unawaited(loadExpenses());
         unawaited(loadInventory());
+        unawaited(loadVerificationStatus());
       }
     } catch (e, st) {
       log.error('loadBusiness failed', error: e, stackTrace: st);
@@ -329,6 +336,53 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Compute aggregated financials for a custom period from already-loaded
+  /// receipt and expense lists. Instant — no network calls. Use [months]=0
+  /// for YTD (year-to-date from January 1).
+  PeriodSummary computePeriodSummary(int months) {
+    final now = DateTime.now();
+    final periodEnd = DateTime(now.year, now.month + 1, 1);
+    final DateTime periodStart;
+
+    if (months <= 0) {
+      // YTD — from January 1 of this year
+      periodStart = DateTime(now.year, 1, 1);
+    } else {
+      periodStart = DateTime(now.year, now.month - months + 1, 1);
+    }
+
+    double sumInRange(
+      Iterable<Map<String, dynamic>> items,
+      String dateField,
+      String amountField,
+      DateTime start,
+      DateTime end,
+    ) {
+      return items
+          .where((r) {
+            final dateStr = r[dateField] as String?;
+            if (dateStr == null) return false;
+            final date = DateTime.tryParse(dateStr);
+            if (date == null) return false;
+            return !date.isBefore(start) && date.isBefore(end);
+          })
+          .fold(0.0,
+              (sum, r) => sum + ((r[amountField] as num?)?.toDouble() ?? 0));
+    }
+
+    final revenue = sumInRange(
+        _receipts, 'paid_date', 'total_amount', periodStart, periodEnd);
+    final expenses = sumInRange(
+        _expenses, 'expense_date', 'amount_ghs', periodStart, periodEnd);
+
+    return PeriodSummary(
+      startDate: periodStart,
+      endDate: periodEnd,
+      revenue: revenue,
+      expenses: expenses,
+    );
+  }
+
   // ── Financials (month-to-date aggregation) ─────────────────────────────────
   Financials _financials = Financials.empty;
   Financials get financials => _financials;
@@ -346,8 +400,8 @@ class AppState extends ChangeNotifier {
   /// Two-phase load:
   ///   1. Restore from local cache (instant) so home screen cards populate
   ///      immediately with last-fetched values.
-  ///   2. Run five Supabase queries in parallel (this-month receipts & expenses,
-  ///      last-month receipts & expenses, open invoices), then update cache.
+  ///   2. Run three Supabase queries in parallel (this-month receipts,
+  ///      this-month expenses, open invoices), then update cache.
   ///   On network failure the cached data persists — no regression to zeros.
   Future<void> loadFinancials() async {
     final bizId = _business?.id;
@@ -374,25 +428,18 @@ class AppState extends ChangeNotifier {
       final now = DateTime.now();
       final thisMonthStart = DateTime(now.year, now.month, 1);
       final nextMonthStart = DateTime(now.year, now.month + 1, 1);
-      final lastMonthStart = DateTime(now.year, now.month - 1, 1);
 
       final results = await Future.wait([
         SupabaseService.sumReceipts(
             businessId: bizId, start: thisMonthStart, end: nextMonthStart),
         SupabaseService.sumExpenses(
             businessId: bizId, start: thisMonthStart, end: nextMonthStart),
-        SupabaseService.sumReceipts(
-            businessId: bizId, start: lastMonthStart, end: thisMonthStart),
-        SupabaseService.sumExpenses(
-            businessId: bizId, start: lastMonthStart, end: thisMonthStart),
         SupabaseService.fetchOpenInvoices(businessId: bizId),
       ]);
 
       final revenueNow = results[0] as double;
       final expensesNow = results[1] as double;
-      final revenueLast = results[2] as double;
-      final expensesLast = results[3] as double;
-      final openInvoices = results[4] as List<Map<String, dynamic>>;
+      final openInvoices = results[2] as List<Map<String, dynamic>>;
 
       // Outstanding sum + counts (overdue = past due_date OR status='overdue')
       var outstandingTotal = 0.0;
@@ -418,10 +465,10 @@ class AppState extends ChangeNotifier {
         }
       }
 
-      double? pctChange(double now_, double last) {
-        if (last == 0) return null; // can't divide; hide the chip
-        return ((now_ - last) / last) * 100;
-      }
+      // Simple 30-day Outlook: Outstanding + 80% of current month's revenue (as proxy for next month)
+      // minus 110% of current month's expenses.
+      final projected = outstandingTotal + (revenueNow * 0.8) - (expensesNow * 1.1);
+      final isAtRisk = projected < 0 && (revenueNow + outstandingTotal) < expensesNow;
 
       _financials = Financials(
         revenueThisMonth: revenueNow.round(),
@@ -430,8 +477,8 @@ class AppState extends ChangeNotifier {
         outstandingCount: openInvoices.length,
         outstandingOverdueCount: overdueCount,
         pipeline: pipelineTotal.round(),
-        revenueChangePctVsLastMonth: pctChange(revenueNow, revenueLast),
-        expensesChangePctVsLastMonth: pctChange(expensesNow, expensesLast),
+        projectedCash30Days: projected,
+        isAtRisk: isAtRisk,
       );
       log.info('loadFinancials — revenue=${revenueNow.round()} expenses=${expensesNow.round()} outstanding=${outstandingTotal.round()} openInvoices=${openInvoices.length} overdue=$overdueCount (${sw.elapsedMilliseconds}ms)');
       // Persist to cache for instant load on next cold start.
@@ -614,7 +661,6 @@ class AppState extends ChangeNotifier {
           schema: 'public',
           callback: (payload) {
             log.debug('_subscribeInventoryChannel — event=${payload.eventType}');
-            // Reload inventory in the background on any change
             unawaited(loadInventory());
           },
         )
@@ -626,6 +672,77 @@ class AppState extends ChangeNotifier {
   void _unsubscribeInventoryChannel() {
     _inventoryChannel?.unsubscribe();
     _inventoryChannel = null;
+  }
+
+  // ── Realtime subscriptions (invoices, receipts, expenses) ───────────────────
+  RealtimeChannel? _invoicesChannel;
+  RealtimeChannel? _receiptsChannel;
+  RealtimeChannel? _expensesChannel;
+
+  void _subscribeAllChannels() {
+    final bizId = _business?.id;
+    if (!supabaseConfigured || bizId == null) return;
+
+    _subscribeInventoryChannel();
+    _subscribeVerificationChannel();
+
+    // Invoices channel
+    _invoicesChannel?.unsubscribe();
+    _invoicesChannel = SupabaseService.client.channel('invoices-changes');
+    _invoicesChannel!
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          table: 'invoices',
+          schema: 'public',
+          callback: (payload) {
+            log.debug('realtime invoices — event=${payload.eventType}');
+            unawaited(loadInvoices());
+          },
+        )
+        .subscribe();
+
+    // Receipts channel
+    _receiptsChannel?.unsubscribe();
+    _receiptsChannel = SupabaseService.client.channel('receipts-changes');
+    _receiptsChannel!
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          table: 'receipts',
+          schema: 'public',
+          callback: (payload) {
+            log.debug('realtime receipts — event=${payload.eventType}');
+            unawaited(loadReceipts());
+          },
+        )
+        .subscribe();
+
+    // Expenses channel
+    _expensesChannel?.unsubscribe();
+    _expensesChannel = SupabaseService.client.channel('expenses-changes');
+    _expensesChannel!
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          table: 'expenses',
+          schema: 'public',
+          callback: (payload) {
+            log.debug('realtime expenses — event=${payload.eventType}');
+            unawaited(loadExpenses());
+          },
+        )
+        .subscribe();
+
+    log.debug('_subscribeAllChannels — subscribed for bizId=$bizId');
+  }
+
+  void _unsubscribeAllChannels() {
+    _unsubscribeInventoryChannel();
+    _unsubscribeVerificationChannel();
+    _invoicesChannel?.unsubscribe();
+    _receiptsChannel?.unsubscribe();
+    _expensesChannel?.unsubscribe();
+    _invoicesChannel = null;
+    _receiptsChannel = null;
+    _expensesChannel = null;
   }
 
   Future<void> loadInventory() async {
@@ -670,15 +787,23 @@ class AppState extends ChangeNotifier {
   SubscriptionInfo? _subscription;
   bool _subscriptionLoading = false;
   List<SubscriptionPlan> _availablePlans = [];
+  bool _subscriptionExpired = false;
+  String? _subscriptionExpiredTier;
 
   SubscriptionInfo? get subscription => _subscription;
   bool get subscriptionLoading => _subscriptionLoading;
   List<SubscriptionPlan> get availablePlans => _availablePlans;
+  /// True when the business had a paid subscription that has expired.
+  bool get subscriptionExpired => _subscriptionExpired;
+  /// The tier code (e.g. 'lite', 'plus', 'elite') of the expired subscription.
+  String? get subscriptionExpiredTier => _subscriptionExpiredTier;
 
   Future<void> loadSubscription() async {
     final bizId = _business?.id;
     if (!supabaseConfigured || bizId == null) {
       _subscription = null;
+      _subscriptionExpired = false;
+      _subscriptionExpiredTier = null;
       notifyListeners();
       return;
     }
@@ -687,11 +812,16 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     final sw = Stopwatch()..start();
     try {
-      _subscription = await SubscriptionService.getCurrentSubscription(businessId: bizId);
-      log.info('loadSubscription — ${_subscription != null ? 'tier=${_subscription!.tierCode}' : 'free/expired'} (${sw.elapsedMilliseconds}ms)');
+      final result = await SubscriptionService.getCurrentSubscription(businessId: bizId);
+      _subscription = result.subscription;
+      _subscriptionExpired = result.expired;
+      _subscriptionExpiredTier = result.expiredTierCode;
+      log.info('loadSubscription — ${result.subscription != null ? 'tier=${result.subscription!.tierCode}' : result.expired ? 'expired=${result.expiredTierCode}' : 'free'} (${sw.elapsedMilliseconds}ms)');
     } catch (e, st) {
       log.error('loadSubscription failed', error: e, stackTrace: st);
       _subscription = null;
+      _subscriptionExpired = false;
+      _subscriptionExpiredTier = null;
     } finally {
       _subscriptionLoading = false;
       notifyListeners();
@@ -881,6 +1011,11 @@ class AppState extends ChangeNotifier {
         unawaited(_loadStaffFromCache());
         unawaited(_loadCustomersFromCache());
         unawaited(_loadRecurringFromCache());
+        unawaited(_loadMilestonesFromCache());
+        unawaited(_loadPayrollFromCache());
+        unawaited(_loadShopFromCache());
+        unawaited(_loadBookingsFromCache());
+        unawaited(_loadVerificationFromCache());
       }
       return;
     }
@@ -894,6 +1029,11 @@ class AppState extends ChangeNotifier {
       unawaited(loadStaff());
       unawaited(loadCustomers());
       unawaited(loadRecurringTemplates());
+      unawaited(loadMilestones());
+      unawaited(loadPayrollRuns());
+      unawaited(loadShop());
+      unawaited(loadBookings());
+      unawaited(loadVerificationStatus());
     }
   }
 
@@ -944,6 +1084,256 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Project Management ──────────────────────────────────────────────────
+  List<ProjectMilestone> _milestones = [];
+  bool _milestonesLoading = false;
+
+  List<ProjectMilestone> get milestones => _milestones;
+  bool get milestonesLoading => _milestonesLoading;
+
+  Future<void> loadMilestones() async {
+    final bizId = _business?.id;
+    if (!supabaseConfigured || bizId == null) {
+      _milestones = [];
+      notifyListeners();
+      return;
+    }
+    log.debug('loadMilestones — bizId=$bizId');
+    _milestonesLoading = true;
+    notifyListeners();
+
+    // Phase 1 — restore from cache
+    final cached = await _cache('projects').getOrEmpty();
+    if (cached.isNotEmpty) {
+      _milestones = cached.map(ProjectMilestone.fromRow).toList();
+      log.debug('loadMilestones — restored ${_milestones.length} from cache');
+      notifyListeners();
+      _milestonesLoading = false;
+    }
+
+    // Phase 2 — network fetch
+    final sw = Stopwatch()..start();
+    try {
+      final rows = await ProjectService.fetchMilestones(businessId: bizId);
+      _milestones = rows.map(ProjectMilestone.fromRow).toList();
+      await _cache('projects').put(rows);
+      log.info('loadMilestones — loaded ${_milestones.length} projects (${sw.elapsedMilliseconds}ms)');
+    } catch (e, st) {
+      log.error('loadMilestones failed', error: e, stackTrace: st);
+      if (_milestones.isEmpty) {
+        _milestones = cached.map(ProjectMilestone.fromRow).toList();
+      }
+    } finally {
+      _milestonesLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _loadMilestonesFromCache() async {
+    final cached = await _cache('projects').getOrEmpty();
+    _milestones = cached.map(ProjectMilestone.fromRow).toList();
+    _milestonesLoading = false;
+    notifyListeners();
+  }
+
+  // ── Payroll ─────────────────────────────────────────────────────────────
+  List<PayrollRun> _payrollRuns = [];
+  bool _payrollLoading = false;
+  Map<String, dynamic>? _delegationMetrics;
+
+  List<PayrollRun> get payrollRuns => _payrollRuns;
+  bool get payrollLoading => _payrollLoading;
+  Map<String, dynamic>? get delegationMetrics => _delegationMetrics;
+
+  double get ytdPayrollTotal => _payrollRuns
+      .where((r) => r.status == 'logged_to_finance')
+      .fold(0.0, (sum, r) => sum + r.totalPayrollGhs);
+
+  Future<void> loadPayrollRuns() async {
+    final bizId = _business?.id;
+    if (!supabaseConfigured || bizId == null) {
+      _payrollRuns = [];
+      notifyListeners();
+      return;
+    }
+    log.debug('loadPayrollRuns — bizId=$bizId');
+    _payrollLoading = true;
+    notifyListeners();
+
+    // Parallel load payroll history and delegation metrics
+    try {
+      final results = await Future.wait([
+        PayrollService.fetchPayrollRuns(businessId: bizId),
+        HrmService.calculateDelegationIndex(bizId),
+      ]);
+
+      _payrollRuns = (results[0] as List).map((r) => PayrollRun.fromRow(r as Map<String, dynamic>)).toList();
+      _delegationMetrics = results[1] as Map<String, dynamic>;
+      
+      await _cache('payroll').put(results[0] as List<Map<String, dynamic>>);
+      log.info('loadPayrollRuns — loaded ${_payrollRuns.length} runs, index=${_delegationMetrics?['index']}');
+    } catch (e, st) {
+      log.error('loadPayrollRuns failed', error: e, stackTrace: st);
+    } finally {
+      _payrollLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> initiateCurrentMonthPayroll() async {
+    final bizId = _business?.id;
+    if (bizId == null) return;
+    
+    try {
+      await PayrollService.ensurePayrollRunForCurrentMonth(bizId);
+      await loadPayrollRuns();
+    } catch (e, st) {
+      log.error('initiateCurrentMonthPayroll failed', error: e, stackTrace: st);
+      rethrow;
+    }
+  }
+
+  Future<void> processPayroll({
+    required String payrollRunId,
+    required String paymentSource,
+  }) async {
+    final bizId = _business?.id;
+    if (bizId == null) return;
+
+    try {
+      await PayrollService.processPayrollToFinance(
+        businessId: bizId,
+        payrollRunId: payrollRunId,
+        paymentSource: paymentSource,
+      );
+      // Refresh both domains
+      unawaited(loadPayrollRuns());
+      unawaited(loadFinancials());
+    } catch (e, st) {
+      log.error('processPayroll failed', error: e, stackTrace: st);
+      rethrow;
+    }
+  }
+
+  Future<void> _loadPayrollFromCache() async {
+    final cached = await _cache('payroll').getOrEmpty();
+    _payrollRuns = cached.map(PayrollRun.fromRow).toList();
+    _payrollLoading = false;
+    notifyListeners();
+  }
+
+  // ── Bookings ──────────────────────────────────────────────────────────────
+  List<Booking> _bookings = [];
+  List<BookingService> _bookingServices = [];
+  bool _bookingsLoading = false;
+
+  List<Booking> get bookings => _bookings;
+  List<BookingService> get bookingServices => _bookingServices;
+  bool get bookingsLoading => _bookingsLoading;
+
+  Future<void> loadBookings() async {
+    final bizId = _business?.id;
+    if (!supabaseConfigured || bizId == null) {
+      _bookings = [];
+      _bookingServices = [];
+      notifyListeners();
+      return;
+    }
+    log.debug('loadBookings — bizId=$bizId');
+    _bookingsLoading = true;
+    notifyListeners();
+
+    // Phase 1 — restore from cache
+    final cachedBookings = await _cache('bookings').getOrEmpty();
+    final cachedServices = await _cache('booking_services').getOrEmpty();
+    if (cachedBookings.isNotEmpty) {
+      _bookings = cachedBookings.map(Booking.fromRow).toList();
+      log.debug('loadBookings — restored ${_bookings.length} bookings from cache');
+      notifyListeners();
+      _bookingsLoading = false;
+    }
+    if (cachedServices.isNotEmpty) {
+      _bookingServices = cachedServices.map(BookingService.fromRow).toList();
+    }
+
+    // Phase 2 — network fetch
+    final sw = Stopwatch()..start();
+    try {
+      final results = await Future.wait([
+        // Use BookingService's fetch method which has the correct join query
+        svc.BookingService.fetchBookings(businessId: bizId),
+        (() async {
+          final rows = await SupabaseService.client
+              .from('booking_services')
+              .select('*')
+              .eq('business_id', bizId)
+              .order('service_name', ascending: true);
+          return List<Map<String, dynamic>>.from(rows as List);
+        })(),
+      ]);
+      _bookings = (results[0]).map(Booking.fromRow).toList();
+      _bookingServices = (results[1]).map(BookingService.fromRow).toList();
+      await _cache('bookings').put(results[0]);
+      await _cache('booking_services').put(results[1]);
+      log.info('loadBookings — loaded ${_bookings.length} bookings, ${_bookingServices.length} services (${sw.elapsedMilliseconds}ms)');
+    } catch (e, st) {
+      log.error('loadBookings failed', error: e, stackTrace: st);
+      if (_bookings.isEmpty) {
+        _bookings = cachedBookings.map(Booking.fromRow).toList();
+        _bookingServices = cachedServices.map(BookingService.fromRow).toList();
+      }
+    } finally {
+      _bookingsLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _loadBookingsFromCache() async {
+    final cachedBookings = await _cache('bookings').getOrEmpty();
+    final cachedServices = await _cache('booking_services').getOrEmpty();
+    _bookings = cachedBookings.map(Booking.fromRow).toList();
+    _bookingServices = cachedServices.map(BookingService.fromRow).toList();
+    _bookingsLoading = false;
+    notifyListeners();
+  }
+
+  // ── Shop ────────────────────────────────────────────────────────────────
+  Shop? _shop;
+  bool _shopLoading = false;
+
+  Shop? get shop => _shop;
+  bool get shopLoading => _shopLoading;
+
+  Future<void> loadShop() async {
+    final bizId = _business?.id;
+    if (!supabaseConfigured || bizId == null) return;
+    _shopLoading = true;
+    notifyListeners();
+
+    try {
+      final res = await SupabaseService.fetchShop(businessId: bizId);
+      
+      if (res != null) {
+        _shop = Shop.fromRow(res);
+        await _cache('shop').put([res]);
+      }
+    } catch (e, st) {
+      log.error('loadShop failed', error: e, stackTrace: st);
+    } finally {
+      _shopLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _loadShopFromCache() async {
+    final cached = await _cache('shop').getOrEmpty();
+    if (cached.isNotEmpty) {
+      _shop = Shop.fromRow(cached.first);
+    }
+    _shopLoading = false;
+    notifyListeners();
+  }
+
   Future<bool> signIn({required String email, required String password}) async {
     log.info('signIn — email=${AppLogger.maskEmail(email)} supabaseConfigured=$supabaseConfigured');
     if (!supabaseConfigured) {
@@ -973,7 +1363,9 @@ class AppState extends ChangeNotifier {
     } catch (e, st) {
       log.error('signIn failed', error: e, stackTrace: st);
       _authLoading = false;
-      _authError = 'Sign-in failed. Check your connection and try again.';
+      final msg = e.toString();
+      final clean = _extractErrorMessage(msg);
+      _authError = clean ?? 'Sign-in failed. Check your connection and try again.';
       notifyListeners();
       return false;
     }
@@ -1029,7 +1421,11 @@ class AppState extends ChangeNotifier {
     } catch (e, st) {
       log.error('signUp failed', error: e, stackTrace: st);
       _authLoading = false;
-      _authError = 'Sign-up failed. Check your connection and try again.';
+      // Surface the actual error message to help debugging.
+      final msg = e.toString();
+      // Extract a clean message from PostgrestException or generic errors
+      final clean = _extractErrorMessage(msg);
+      _authError = clean ?? 'Sign-up failed. Check your connection and try again.';
       notifyListeners();
       return false;
     }
@@ -1074,11 +1470,11 @@ class AppState extends ChangeNotifier {
     _user = null;
     if (supabaseConfigured) SupabaseService.signOut();
     // Clear all caches
-    unawaited(_clearAllCaches());
+    unawaited(clearAllCaches());
     notifyListeners();
   }
 
-  Future<void> _clearAllCaches() async {
+  Future<void> clearAllCaches() async {
     await Future.wait([
       _cache('invoices').clear(),
       _cache('receipts').clear(),
@@ -1087,6 +1483,12 @@ class AppState extends ChangeNotifier {
       _cache('customers').clear(),
       _cache('staff').clear(),
       _cache('recurring').clear(),
+      _cache('projects').clear(),
+      _cache('payroll').clear(),
+      _cache('shop').clear(),
+      _cache('bookings').clear(),
+      _cache('booking_services').clear(),
+      _cache('verification_tasks').clear(),
     ]);
     await syncService.clear();
   }
@@ -1109,11 +1511,244 @@ class AppState extends ChangeNotifier {
   /// Consume (clear) the pending prompt after reading.
   String? consumeAiPrompt() { final p = _pendingAiPrompt; _pendingAiPrompt = null; return p; }
 
+  // ── Business info updates ───────────────────────────────────────────────────
+
+  /// Update business profile fields (name, phone, city) via Supabase.
+  /// Triggers a profile reload on success. No-op when not authenticated.
+  Future<void> updateBusinessInfo({
+    String? name,
+    String? phone,
+    String? city,
+  }) async {
+    if (!supabaseConfigured || _user == null) return;
+    final data = <String, dynamic>{};
+    if (name != null) data['business_name'] = name.trim();
+    if (phone != null) data['phone'] = phone.trim();
+    if (city != null) data['city'] = city.trim();
+    if (data.isEmpty) return;
+
+    log.info('updateBusinessInfo — keys=${data.keys.toList()}');
+    try {
+      await SupabaseService.upsertProfile(data);
+      unawaited(loadBusiness());
+    } catch (e, st) {
+      log.error('updateBusinessInfo failed', error: e, stackTrace: st);
+      rethrow;
+    }
+  }
+
+  /// Upload a business logo image, update the profile, and reload.
+  /// Returns the new logo URL on success, null on failure.
+  Future<String?> uploadBusinessLogo({
+    required List<int> fileBytes,
+    required String fileName,
+    required String fileType,
+  }) async {
+    final bizId = _business?.id;
+    if (!supabaseConfigured || bizId == null) return null;
+
+    final url = await SupabaseService.uploadBusinessLogo(
+      businessId: bizId,
+      fileBytes: fileBytes,
+      fileName: fileName,
+      fileType: fileType,
+    );
+
+    if (url != null) {
+      try {
+        await SupabaseService.upsertProfile({'logo_url': url});
+        // Immediately update local state so the UI shows the logo right away,
+        // without waiting for the network round-trip in loadBusiness().
+        if (_business != null) {
+          _business = _business!.copyWith(logoUrl: url);
+          notifyListeners();
+        }
+        unawaited(loadBusiness());
+      } catch (e, st) {
+        log.error('uploadBusinessLogo — profile update failed', error: e, stackTrace: st);
+      }
+    }
+    return url;
+  }
+
+  /// Remove the business logo by clearing `logo_url` on the profile.
+  /// Triggers a profile reload on success.
+  Future<void> removeBusinessLogo() async {
+    final bizId = _business?.id;
+    if (!supabaseConfigured || bizId == null) return;
+
+    log.info('removeBusinessLogo — bizId=$bizId');
+    try {
+      await SupabaseService.removeBusinessLogo(businessId: bizId);
+      unawaited(loadBusiness());
+    } catch (e, st) {
+      log.error('removeBusinessLogo failed', error: e, stackTrace: st);
+      rethrow;
+    }
+  }
+
+  // ── Notification badge (last-seen tracking) ───────────────────────────────
+  int? _lastSeenEpochMs;
+
+  /// Notification count (computed from live data) for the bell badge.
+  /// Respects notification preferences so disabled categories don't contribute.
+  int get notificationsCount {
+    final now = DateTime.now();
+    var count = 0;
+    if (_notifyExpiringQuotes) {
+      count += invoices.where((i) =>
+          i.isProforma &&
+          i.validUntil != null &&
+          i.validUntil!.isAfter(now) &&
+          i.validUntil!.difference(now).inDays <= 3).length;
+    }
+    if (_notifyOverdueInvoices) {
+      count += invoices.where((i) =>
+          i.status == 'overdue' && i.days >= 7).length;
+    }
+    if (_notifyLowStock) {
+      count += _inventory.where((i) => i.lowStock).length;
+    }
+    return count;
+  }
+
+  /// Mark all current notifications as seen — resets the badge to 0
+  /// until new events appear.
+  void markNotificationsSeen() {
+    _lastSeenEpochMs = DateTime.now().millisecondsSinceEpoch;
+    _persistLastSeen();
+    notifyListeners();
+  }
+
+  /// Timestamp (epoch ms) of when the user last opened the notifications sheet.
+  /// Used by [buildNotifications] to filter items newer than last review.
+  int? get lastSeenNotificationEpochMs => _lastSeenEpochMs;
+
+  void _persistLastSeen() {
+    try {
+      SharedPreferences.getInstance().then((prefs) {
+        if (_lastSeenEpochMs != null) {
+          prefs.setInt('ascend_last_seen_notifications', _lastSeenEpochMs!);
+        }
+      });
+    } catch (_) {}
+  }
+
+  // ── Notification preferences (stored locally, used when push infra is added) ──
+  bool _notifyInvoiceReminders = true;
+  bool _notifyPaymentReceived = true;
+  bool _notifyExpenseReminders = true;
+  bool _notifyExpiringQuotes = true;
+  bool _notifyOverdueInvoices = true;
+  bool _notifyLowStock = true;
+
+  bool get notifyInvoiceReminders => _notifyInvoiceReminders;
+  bool get notifyPaymentReceived => _notifyPaymentReceived;
+  bool get notifyExpenseReminders => _notifyExpenseReminders;
+  bool get notifyExpiringQuotes => _notifyExpiringQuotes;
+  bool get notifyOverdueInvoices => _notifyOverdueInvoices;
+  bool get notifyLowStock => _notifyLowStock;
+
+  void setNotifyInvoiceReminders(bool v) {
+    _notifyInvoiceReminders = v;
+    _persistNotifyPrefs();
+    notifyListeners();
+  }
+
+  void setNotifyPaymentReceived(bool v) {
+    _notifyPaymentReceived = v;
+    _persistNotifyPrefs();
+    notifyListeners();
+  }
+
+  void setNotifyExpenseReminders(bool v) {
+    _notifyExpenseReminders = v;
+    _persistNotifyPrefs();
+    notifyListeners();
+  }
+
+  void setNotifyExpiringQuotes(bool v) {
+    _notifyExpiringQuotes = v;
+    _persistNotifyPrefs();
+    notifyListeners();
+  }
+
+  void setNotifyOverdueInvoices(bool v) {
+    _notifyOverdueInvoices = v;
+    _persistNotifyPrefs();
+    notifyListeners();
+  }
+
+  void setNotifyLowStock(bool v) {
+    _notifyLowStock = v;
+    _persistNotifyPrefs();
+    notifyListeners();
+  }
+
+  void _persistNotifyPrefs() {
+    try {
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setBool('ascend_notify_invoice_reminders', _notifyInvoiceReminders);
+        prefs.setBool('ascend_notify_payment_received', _notifyPaymentReceived);
+        prefs.setBool('ascend_notify_expense_reminders', _notifyExpenseReminders);
+        prefs.setBool('ascend_notify_expiring_quotes', _notifyExpiringQuotes);
+        prefs.setBool('ascend_notify_overdue_invoices', _notifyOverdueInvoices);
+        prefs.setBool('ascend_notify_low_stock', _notifyLowStock);
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _loadNotifyPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _notifyInvoiceReminders = prefs.getBool('ascend_notify_invoice_reminders') ?? true;
+      _notifyPaymentReceived = prefs.getBool('ascend_notify_payment_received') ?? true;
+      _notifyExpenseReminders = prefs.getBool('ascend_notify_expense_reminders') ?? true;
+      _notifyExpiringQuotes = prefs.getBool('ascend_notify_expiring_quotes') ?? true;
+      _notifyOverdueInvoices = prefs.getBool('ascend_notify_overdue_invoices') ?? true;
+      _notifyLowStock = prefs.getBool('ascend_notify_low_stock') ?? true;
+    } catch (_) {}
+    // Also restore last-seen timestamp
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _lastSeenEpochMs = prefs.getInt('ascend_last_seen_notifications');
+    } catch (_) {}
+  }
+
   // ── Appearance ─────────────────────────────────────────────────────────────
   bool _darkMode = false;
   bool get darkMode => _darkMode;
-  void toggleDark() { _darkMode = !_darkMode; notifyListeners(); }
-  void setDark(bool v) { _darkMode = v; notifyListeners(); }
+  void toggleDark() {
+    _darkMode = !_darkMode;
+    _persistDarkMode();
+    notifyListeners();
+  }
+  void setDark(bool v) {
+    _darkMode = v;
+    _persistDarkMode();
+    notifyListeners();
+  }
+
+  static const _kDarkModePrefKey = 'ascend_dark_mode';
+
+  void _persistDarkMode() {
+    try {
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setBool(_kDarkModePrefKey, _darkMode);
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _loadDarkMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getBool(_kDarkModePrefKey);
+      if (saved != null) {
+        _darkMode = saved;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
 
   NavVariant _navVariant = NavVariant.classic;
   NavVariant get navVariant => _navVariant;
@@ -1121,12 +1756,315 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
-    _unsubscribeInventoryChannel();
+    _unsubscribeAllChannels();
     connectivity.removeListener(_onConnectivityChange);
     super.dispose();
   }
 
+  // ── Conversion events (for activity feed — ephemeral, in-memory) ───────────
+  /// Tracks proforma-to-invoice conversions so the activity feed can surface
+  /// "Quote for X converted" events. Ephemeral (not persisted) — lost on
+  /// app restart, which is acceptable since the converted quote now lives as
+  /// a regular invoice and older sessions' conversion events are replaced by
+  /// the invoice's creation event.
+  final List<Map<String, dynamic>> _conversionEvents = [];
+
+  /// Record a proforma-to-invoice conversion for the activity feed.
+  void recordConversion(String customerName, num amount, {String? invoiceId}) {
+    _conversionEvents.add({
+      'customerName': customerName,
+      'amount': amount,
+      'time': DateTime.now().toIso8601String(),
+      'invoiceId': invoiceId,
+    });
+    // Keep only the last 20 to prevent unbounded growth.
+    while (_conversionEvents.length > 20) {
+      _conversionEvents.removeAt(0);
+    }
+    notifyListeners();
+  }
+
+  /// Read-only view of recorded conversion events for `buildActivityFeed()`.
+  List<Map<String, dynamic>> get conversionEvents =>
+      List.unmodifiable(_conversionEvents);
+
+  // ── Verification progress (real data from verification_tasks table) ──────────
+  //
+  // Why this lives in AppState:
+  //   1. Single source of truth — every screen reads from one place.
+  //   2. Follows the existing two-phase pattern (cache → network).
+  //   3. When the data source changes, only AppState changes — no widget edits.
+  //
+  // Strategy:
+  //   - The step definitions (what documents are needed) come from kVerificationSteps.
+  //   - The STATUS of each step comes from verification_tasks in Supabase.
+  //     (Web creates a verification_task per document type per business.)
+  //   - A verified task → 'verified' status
+  //   - A pending-review task → 'pending' status
+  //   - No task or EMPTY status → 'todo' status
+  //   - Falls back to mock statuses when no Supabase data is available.
+
+  /// Raw verification task rows fetched from Supabase.
+  List<Map<String, dynamic>> _verificationTaskRows = [];
+
+  /// Whether verification status has been loaded at least once.
+  bool _verificationLoaded = false;
+
+  /// The full list of verification steps with current status.
+  /// Merges the step definitions (kVerificationSteps) with real task statuses
+  /// from Supabase. Falls back to mock statuses when real data hasn't loaded.
+  List<VerificationStep> get verificationSteps {
+    if (!_verificationLoaded) return kVerificationSteps;
+
+    // Build a lookup: step id → task row
+    // Uses a clean dictionary instead of fragile string matching.
+    final taskMap = <String, Map<String, dynamic>>{};
+    for (final task in _verificationTaskRows) {
+      final taskType = (task['task_type'] as String?)?.toLowerCase().trim() ?? '';
+      final stepId = _kTaskTypeToStepId[taskType];
+      if (stepId != null) {
+        taskMap[stepId] = task;
+      }
+    }
+
+    return kVerificationSteps.map((step) {
+      final task = taskMap[step.id];
+      if (task == null) {
+        // No task exists for this step — it's still to-do
+        return VerificationStep(
+          id: step.id,
+          label: step.label,
+          status: 'todo',
+          detail: step.detail,
+          tier: step.tier,
+        );
+      }
+      final taskStatus = (task['status'] as String?) ?? 'EMPTY';
+      final mappedStatus = switch (taskStatus) {
+        'VERIFIED' || 'RECOMMENDED' => 'verified',
+        'PENDING_REVIEW'            => 'pending',
+        'REJECTED'                  => 'todo', // re-upload needed
+        _                           => 'todo', // EMPTY or unknown → to-do
+      };
+      return VerificationStep(
+        id: step.id,
+        label: step.label,
+        status: mappedStatus,
+        detail: _buildStepDetail(step, taskStatus, task),
+        tier: step.tier,
+      );
+    }).toList();
+  }
+
+  /// Direct mapping from Supabase `verification_tasks.task_type` to the
+  /// step IDs in `kVerificationSteps`. Each entry pairs the exact task_type
+  /// value (as stored by web's verification-integration-service) with the
+  /// corresponding step id. No string matching — just a clean lookup.
+  static const _kTaskTypeToStepId = <String, String>{
+    'ghana_card': 'v2_ghana_card',
+    'rgd_certificate': 'v2_rgd',
+    'tin_certificate': 'v3_tin',
+    'proof_of_address': 'v3_address',
+    'bank_statements': 'v3_bank',
+  };
+
+  /// Build a human-readable detail string that includes the real verification
+  /// status from Supabase (instead of always showing the mock detail).
+  String _buildStepDetail(VerificationStep step, String taskStatus, Map<String, dynamic> task) {
+    switch (taskStatus) {
+      case 'VERIFIED':
+        final verifiedAt = task['verified_at'] as String?;
+        if (verifiedAt != null) {
+          final d = DateTime.tryParse(verifiedAt);
+          if (d != null) return 'Verified ${formatLongDate(d)}';
+        }
+        return 'Verified';
+      case 'PENDING_REVIEW':
+        return 'Document uploaded — awaiting review';
+      case 'REJECTED':
+        final reason = task['rejection_reason'] as String? ?? 'Document was rejected';
+        return reason;
+      default:
+        return step.detail;
+    }
+  }
+
+  /// Number of steps marked as 'verified'.
+  int get verificationDone =>
+      verificationSteps.where((s) => s.status == 'verified').length;
+
+  /// Total verification steps.
+  int get verificationTotal => verificationSteps.length;
+
+  /// Progress as a 0.0–1.0 fraction.
+  double get verificationProgress =>
+      verificationTotal > 0 ? verificationDone / verificationTotal : 0.0;
+
+  /// Whether verification status is currently being loaded.
+  bool _verificationLoading = false;
+  bool get verificationLoading => _verificationLoading;
+
+  /// Set when the network fetch fails — null means no error.
+  String? _verificationError;
+  String? get verificationError => _verificationError;
+
+  /// Whether the verification status loaded successfully at least once (from
+  /// cache or network). Used by the ring to know if it should show real data
+  /// or fall back to mock with a loading indicator.
+  bool get verificationLoaded => _verificationLoaded;
+
+  /// Load verification task statuses from Supabase.
+  /// Two-phase: cache → network, same pattern as invoices/receipts/expenses.
+  Future<void> loadVerificationStatus() async {
+    final bizId = _business?.id;
+    if (!supabaseConfigured || bizId == null) {
+      _verificationLoaded = false;
+      _verificationError = null;
+      notifyListeners();
+      return;
+    }
+    log.debug('loadVerificationStatus — bizId=$bizId');
+    _verificationLoading = true;
+    _verificationError = null;
+    notifyListeners();
+
+    // Phase 1 — restore from cache (so the ring never shows zeros)
+    final cached = await _cache('verification_tasks').getOrEmpty();
+    if (cached.isNotEmpty) {
+      _verificationTaskRows = cached;
+      _verificationLoaded = true;
+      _verificationError = null;
+      log.debug('loadVerificationStatus — restored ${cached.length} tasks from cache');
+      notifyListeners();
+      _verificationLoading = false;
+    }
+
+    // Phase 2 — network fetch (silent refresh if cache was available)
+    final sw = Stopwatch()..start();
+    try {
+      _verificationTaskRows = await SupabaseService.fetchVerificationTasks(businessId: bizId);
+      _verificationLoaded = true;
+      _verificationError = null;
+      await _cache('verification_tasks').put(_verificationTaskRows);
+      log.info('loadVerificationStatus — loaded ${_verificationTaskRows.length} tasks (${sw.elapsedMilliseconds}ms)');
+    } catch (e, st) {
+      log.warning('loadVerificationStatus failed', error: e, stackTrace: st);
+      _verificationError = 'Could not load verification data';
+      // Keep cache data if network fails
+    } finally {
+      _verificationLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Cache-only fallback for offline mode.
+  Future<void> _loadVerificationFromCache() async {
+    final cached = await _cache('verification_tasks').getOrEmpty();
+    if (cached.isNotEmpty) {
+      _verificationTaskRows = cached;
+      _verificationLoaded = true;
+      _verificationError = null;
+      _verificationLoading = false;
+      notifyListeners();
+    }
+  }
+
+  /// Real-time channel for verification_tasks changes.
+  /// When an admin verifies/rejects a document on the web, the ring updates
+  /// automatically without a manual pull-to-refresh.
+  RealtimeChannel? _verificationChannel;
+
+  void _subscribeVerificationChannel() {
+    final bizId = _business?.id;
+    if (!supabaseConfigured || bizId == null) return;
+    _verificationChannel?.unsubscribe();
+    _verificationChannel = SupabaseService.client.channel('verification-changes');
+    _verificationChannel!
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          table: 'verification_tasks',
+          schema: 'public',
+          callback: (payload) {
+            log.debug('realtime verification_tasks — event=${payload.eventType}');
+            unawaited(loadVerificationStatus());
+          },
+        )
+        .subscribe();
+    log.debug('_subscribeVerificationChannel — subscribed for bizId=$bizId');
+  }
+
+  void _unsubscribeVerificationChannel() {
+    _verificationChannel?.unsubscribe();
+    _verificationChannel = null;
+  }
+
   // ── Identity helpers ───────────────────────────────────────────────────────
+
+  // ── Period selection (persisted, shared across screens) ────────────────
+  int _periodIndex = 0;
+
+  /// 0=1M, 1=3M, 2=6M, 3=YTD
+  int get selectedPeriodIndex => _periodIndex;
+
+  /// Convert the index to a month count (0=YTD returns current month number).
+  int get effectivePeriodMonths {
+    if (_periodIndex >= 3) return DateTime.now().month; // YTD
+    return [1, 3, 6][_periodIndex];
+  }
+
+  void setSelectedPeriod(int index) {
+    _periodIndex = index;
+    _persistPeriod();
+    notifyListeners();
+  }
+
+  void _persistPeriod() {
+    try {
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setInt('ascend_selected_period', _periodIndex);
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _loadPeriod() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getInt('ascend_selected_period');
+      if (saved != null && saved >= 0 && saved <= 3) {
+        _periodIndex = saved;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  /// Extract a clean user-facing error message from a raw exception string.
+  /// Strips PostgrestException wrapper noise, Supabase API error prefixes,
+  /// and long stack traces so the user sees the actionable part.
+  /// Extract a clean user-facing error message from a raw exception string.
+  /// Strips PostgrestException wrapper noise, Supabase API error prefixes,
+  /// and long stack traces so the user sees the actionable part.
+  static String? _extractErrorMessage(String raw) {
+    // PostgrestException: 'PostgrestException(message: 'actual error', code: ...)'
+    final pgMatch = RegExp(r"message:\s*'([^']+)'").firstMatch(raw);
+    if (pgMatch != null) {
+      final msg = pgMatch.group(1)!.trim();
+      if (msg.isNotEmpty && msg.length < 200) return msg;
+    }
+    // Fallback: grab text after 'message:' up to a comma or closing bracket
+    final genericMatch = RegExp(r'message:\s*([^,)}\)]+)').firstMatch(raw);
+    if (genericMatch != null) {
+      final msg = genericMatch.group(1)!.trim();
+      if (msg.isNotEmpty && msg.length < 200) return msg;
+    }
+    // Generic HTTP/network errors
+    if (raw.contains('SocketException') || raw.contains('Connection refused')) {
+      return 'Could not reach the server. Check your internet connection.';
+    }
+    if (raw.contains('TimeoutException')) {
+      return 'Request timed out. Check your internet connection and try again.';
+    }
+    return null; // caller provides fallback
+  }
 
   /// First name pulled from auth metadata (set at signup). Returns null when
   /// no full_name was captured — in that case the greeting should omit the

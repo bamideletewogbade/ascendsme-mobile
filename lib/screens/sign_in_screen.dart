@@ -24,8 +24,6 @@ class _SignInScreenState extends State<SignInScreen>
   bool _rememberDevice = true;
 
   late final AnimationController _entranceCtrl;
-  late final Animation<double> _fadeAnim;
-  late final Animation<Offset> _slideAnim;
 
   @override
   void initState() {
@@ -34,17 +32,6 @@ class _SignInScreenState extends State<SignInScreen>
       vsync: this,
       duration: const Duration(milliseconds: 600),
     )..forward();
-    _fadeAnim = CurvedAnimation(
-      parent: _entranceCtrl,
-      curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
-    );
-    _slideAnim = Tween<Offset>(
-      begin: const Offset(0, 24),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _entranceCtrl,
-      curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
-    ));
   }
 
   @override
@@ -160,7 +147,7 @@ class _SignInScreenState extends State<SignInScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _InputField(
+                      AppInput(
                         label: 'Email address',
                         controller: _emailCtrl,
                         icon: Icons.email_outlined,
@@ -173,29 +160,8 @@ class _SignInScreenState extends State<SignInScreen>
                         onSubmitted: (_) => _pwFocus.requestFocus(),
                       ),
                       const SizedBox(height: 14),
-                      // Password label row with inline "Forgot password?" link
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Password',
-                              style: AppType.body(
-                                  size: 11.5,
-                                  weight: FontWeight.w600,
-                                  color: c.textMuted)),
-                          GestureDetector(
-                            onTap: _openForgotPassword,
-                            behavior: HitTestBehavior.opaque,
-                            child: Text('Forgot Password?',
-                                style: AppType.body(
-                                    size: 12,
-                                    weight: FontWeight.w600,
-                                    color: c.blueDeep)),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      _InputField(
-                        label: '',
+                      AppInput(
+                        label: 'Password',
                         controller: _pwCtrl,
                         focusNode: _pwFocus,
                         icon: Icons.lock_outline,
@@ -212,6 +178,19 @@ class _SignInScreenState extends State<SignInScreen>
                             size: 18,
                             color: c.textFaint,
                           ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      // Forgot password link
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: GestureDetector(
+                          onTap: _openForgotPassword,
+                          child: Text('Forgot Password?',
+                              style: AppType.body(
+                                  size: 12,
+                                  weight: FontWeight.w600,
+                                  color: c.blueDeep)),
                         ),
                       ),
 
@@ -378,80 +357,4 @@ class _SignInScreenState extends State<SignInScreen>
   }
 }
 
-// ── Input field ───────────────────────────────────────────────────────────────
 
-class _InputField extends StatelessWidget {
-  final String label;
-  final TextEditingController controller;
-  final IconData icon;
-  final bool obscure;
-  final Widget? suffix;
-  final TextInputType? keyboardType;
-  final TextInputAction? textInputAction;
-  final List<String>? autofillHints;
-  final ValueChanged<String>? onSubmitted;
-  final FocusNode? focusNode;
-
-  const _InputField({
-    required this.label,
-    required this.controller,
-    required this.icon,
-    this.obscure = false,
-    this.suffix,
-    this.keyboardType,
-    this.textInputAction,
-    this.autofillHints,
-    this.onSubmitted,
-    this.focusNode,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (label.isNotEmpty) ...[
-          Text(label,
-              style: AppType.body(
-                  size: 11.5, weight: FontWeight.w600, color: c.textMuted)),
-          const SizedBox(height: 6),
-        ],
-        Container(
-          height: 50,
-          decoration: BoxDecoration(
-            color: c.bgInset,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: c.border),
-          ),
-          child: Row(
-            children: [
-              const SizedBox(width: 14),
-              Icon(icon, size: 17, color: c.textFaint),
-              const SizedBox(width: 10),
-              Expanded(
-                child: TextField(
-                  controller: controller,
-                  focusNode: focusNode,
-                  obscureText: obscure,
-                  keyboardType: keyboardType,
-                  textInputAction: textInputAction,
-                  autofillHints: autofillHints,
-                  onSubmitted: onSubmitted,
-                  style: AppType.body(
-                      size: 14, weight: FontWeight.w500, color: c.text),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-              ),
-              if (suffix != null) ...[suffix!, const SizedBox(width: 14)],
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}

@@ -366,14 +366,14 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                           'Open lead' => c.blue,
                           _ => c.teal,
                         };
-                        return Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
+                        return ClipRRect(
+                          borderRadius: BorderRadius.circular(99),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             color: segColor.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(99),
+                            child: Text(seg,
+                                style: AppType.body(size: 10.5, weight: FontWeight.w600, color: segColor)),
                           ),
-                          child: Text(seg,
-                              style: AppType.body(size: 10.5, weight: FontWeight.w600, color: segColor)),
                         );
                       }).toList(),
                     ),
@@ -515,11 +515,23 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
               ),
               const SizedBox(height: 20),
 
-              // Interaction log
+              // Activity log
               Row(
                 children: [
                   Text('Activity log',
                       style: AppType.heading(size: 15, color: c.text)),
+                  if (_interactions.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: c.bgInset,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text('${_interactions.length}',
+                          style: AppType.body(size: 10, color: c.textMuted)),
+                    ),
+                  ],
                   const Spacer(),
                   GestureDetector(
                     onTap: () => setState(() => _showInternalNotes = !_showInternalNotes),
@@ -545,15 +557,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
               ),
               const SizedBox(height: 12),
 
-              // Interaction list
+              // Interaction list — grouped by date period
               if (_interactions.isEmpty)
                 Text('No activity logged yet',
                     style: AppType.body(size: 12, color: c.textFaint))
               else
-                ..._interactions.where((i) => _showInternalNotes || !i.isInternal).map((interaction) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _InteractionTile(interaction: interaction),
-                    )),
+                ..._buildGroupedInteractions(c),
             ],
 
             const SizedBox(height: 22),
@@ -593,6 +602,103 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     if (parts.isEmpty) return '—';
     if (parts.length == 1) return parts[0].substring(0, 1).toUpperCase();
     return (parts[0].substring(0, 1) + parts[1].substring(0, 1)).toUpperCase();
+  }
+
+  /// Group interactions by date period: Today, Yesterday, This Week, This Month, Older.
+  List<Widget> _buildGroupedInteractions(AppColorsX c) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final thisWeekStart = today.subtract(Duration(days: today.weekday - 1));
+    final thisMonthStart = DateTime(now.year, now.month, 1);
+
+    final visible = _interactions
+        .where((i) => _showInternalNotes || !i.isInternal)
+        .toList();
+
+    if (visible.isEmpty) return [
+      Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text('No activity logged yet',
+            style: AppType.body(size: 12, color: c.textFaint)),
+      )
+    ];
+
+    // Assign each interaction to a date bucket
+    Map<String, List<CrmInteraction>> groups = {};
+    for (final interaction in visible) {
+      final dateStr = interaction.interactionDate;
+      final dt = DateTime.tryParse(dateStr);
+      String bucket;
+      if (dt == null) {
+        bucket = 'Older';
+      } else {
+        final d = DateTime(dt.year, dt.month, dt.day);
+        if (d == today) {
+          bucket = 'Today';
+        } else if (d == yesterday) {
+          bucket = 'Yesterday';
+        } else if (d.isAfter(thisWeekStart.subtract(const Duration(days: 1)))) {
+          bucket = 'This week';
+        } else if (d.isAfter(thisMonthStart.subtract(const Duration(days: 1)))) {
+          bucket = 'This month';
+        } else {
+          bucket = 'Older';
+        }
+      }
+      groups.putIfAbsent(bucket, () => []).add(interaction);
+    }
+
+    // Order buckets chronologically
+    const bucketOrder = ['Today', 'Yesterday', 'This week', 'This month', 'Older'];
+    final widgets = <Widget>[];
+    final nowMs = now.millisecondsSinceEpoch;
+
+    for (final label in bucketOrder) {
+      final items = groups[label];
+      if (items == null || items.isEmpty) continue;
+
+      // Section header for this group
+      final isRecent = label == 'Today' || label == 'Yesterday';
+      widgets.add(Padding(
+        padding: const EdgeInsets.only(top: 8, bottom: 6),
+        child: Row(
+          children: [
+            Container(
+              width: 6, height: 6,
+              decoration: BoxDecoration(
+                color: isRecent ? c.teal : c.textFaint,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(label,
+                style: AppType.body(
+                    size: 11, weight: FontWeight.w600, color: c.textMuted)),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: c.bgInset,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text('${items.length}',
+                  style: AppType.body(size: 9, color: c.textFaint)),
+            ),
+          ],
+        ),
+      ));
+
+      for (final interaction in items) {
+        final ms = DateTime.tryParse(interaction.interactionDate)?.millisecondsSinceEpoch ?? nowMs;
+        widgets.add(Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: _InteractionTile(interaction: interaction, isCompact: label != 'Today'),
+        ));
+      }
+    }
+
+    return widgets;
   }
 }
 
@@ -680,7 +786,8 @@ class _ActionChip extends StatelessWidget {
 
 class _InteractionTile extends StatelessWidget {
   final CrmInteraction interaction;
-  const _InteractionTile({required this.interaction});
+  final bool isCompact;
+  const _InteractionTile({required this.interaction, this.isCompact = false});
 
   @override
   Widget build(BuildContext context) {
@@ -691,6 +798,7 @@ class _InteractionTile extends StatelessWidget {
       'email' => (Icons.email_outlined, c.blueSurface, c.blue),
       'meeting' => (Icons.people_outline, c.amberSurface, c.amber),
       'purchase' => (Icons.payments_outlined, c.greenSurface, c.green),
+      'booking' || 'system_event' => (Icons.event_outlined, c.tealSurface, c.tealDeep),
       _ => (Icons.notes_outlined, c.bgInset, c.textMuted),
     };
 
@@ -726,7 +834,7 @@ class _InteractionTile extends StatelessWidget {
                       Icon(Icons.lock_outline, size: 10, color: c.textFaint),
                     ],
                     const Spacer(),
-                    Text(dateStr,
+                    Text(isCompact ? '' : dateStr,
                         style: AppType.body(size: 10, color: c.textFaint)),
                   ],
                 ),
@@ -736,7 +844,7 @@ class _InteractionTile extends StatelessWidget {
                       ? interaction.internalNotes!
                       : interaction.description,
                   style: AppType.body(size: 12, color: c.textMuted),
-                  maxLines: 3,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
               ],

@@ -1,9 +1,11 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/models.dart';
 import '../../core/tokens.dart';
 import '../../core/widgets/common.dart';
 import '../../state/app_state.dart';
+import '../../services/app_logger.dart';
 import '../help_screen.dart';
 import '../settings_screen.dart';
 import '../tools/subscription_screen.dart';
@@ -48,11 +50,110 @@ class ProfileDrawer extends StatelessWidget {
   }
 }
 
-class _DrawerContent extends StatelessWidget {
+class _DrawerContent extends StatefulWidget {
   final VoidCallback onClose;
   final VoidCallback onSignOut;
 
   const _DrawerContent({required this.onClose, required this.onSignOut});
+
+  @override
+  State<_DrawerContent> createState() => _DrawerContentState();
+}
+
+class _DrawerContentState extends State<_DrawerContent> {
+  bool _uploadingLogo = false;
+
+  Future<void> _pickAndUploadLogo() async {
+    final state = context.read<AppState>();
+    final bizId = state.business.id;
+    if (bizId == null) {
+      _showSnack('Sign in to upload a logo');
+      return;
+    }
+
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.first;
+      if (file.bytes == null) {
+        _showSnack('Could not read the selected image');
+        return;
+      }
+
+      final ext = file.extension?.toLowerCase() ?? 'jpg';
+      final mimeType = switch (ext) {
+        'png' => 'image/png',
+        'webp' => 'image/webp',
+        'gif' => 'image/gif',
+        _ => 'image/jpeg',
+      };
+
+      setState(() => _uploadingLogo = true);
+      final url = await state.uploadBusinessLogo(
+        fileBytes: file.bytes!,
+        fileName: 'logo.$ext',
+        fileType: mimeType,
+      );
+      if (!mounted) return;
+      if (url != null) {
+        _showSnack('Logo uploaded');
+      } else {
+        _showSnack('Logo upload failed');
+      }
+    } catch (e) {
+      log.error('drawer logo pick failed', error: e);
+      if (mounted) _showSnack('Could not pick image');
+    } finally {
+      if (mounted) setState(() => _uploadingLogo = false);
+    }
+  }
+
+  Future<void> _removeLogo() async {
+    final state = context.read<AppState>();
+    setState(() => _uploadingLogo = true);
+    try {
+      await state.removeBusinessLogo();
+      if (!mounted) return;
+      _showSnack('Logo removed');
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('Failed to remove logo');
+    } finally {
+      if (mounted) setState(() => _uploadingLogo = false);
+    }
+  }
+
+  Future<void> _onAvatarTap() async {
+    final state = context.read<AppState>();
+    if (state.business.logoUrl == null) {
+      await _pickAndUploadLogo();
+      return;
+    }
+    // Logo exists — show options
+    final action = await showPhotoOptionsSheet(context);
+    if (action == 'change') {
+      await _pickAndUploadLogo();
+    } else if (action == 'remove') {
+      await _removeLogo();
+    }
+  }
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    final c = context.colors;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg, style: const TextStyle(color: Colors.white)),
+        backgroundColor: c.navyDeep,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -68,7 +169,7 @@ class _DrawerContent extends StatelessWidget {
           child: Align(
             alignment: Alignment.centerRight,
             child: GestureDetector(
-              onTap: onClose,
+              onTap: widget.onClose,
               child: Container(
                 width: 34, height: 34,
                 decoration: BoxDecoration(
@@ -81,13 +182,49 @@ class _DrawerContent extends StatelessWidget {
           ),
         ),
 
-        // ── Profile header ──
+        // ── Profile header with logo upload ──
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              AppAvatar(state.business.initials, size: 54),
+              GestureDetector(
+                onTap: _uploadingLogo ? null : _onAvatarTap,
+                child: Stack(
+                  children: [
+                    AppAvatar(
+                      state.business.initials,
+                      size: 54,
+                      imageUrl: state.business.logoUrl,
+                    ),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: c.teal,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: c.bgElevated, width: 2),
+                        ),
+                        child: _uploadingLogo
+                            ? SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.5,
+                                  valueColor:
+                                      AlwaysStoppedAnimation(Colors.white),
+                                ),
+                              )
+                            : const Icon(Icons.camera_alt,
+                                size: 12, color: Colors.white),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 12),
               Text(state.business.name,
                   style: AppType.heading(size: 18, color: c.text)),
@@ -105,7 +242,7 @@ class _DrawerContent extends StatelessWidget {
             tierLabel: state.business.tier,
             subscription: state.subscription,
             onTap: () {
-              onClose();
+              widget.onClose();
               Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -118,13 +255,6 @@ class _DrawerContent extends StatelessWidget {
 
         Divider(color: c.border, height: 1),
 
-        // ── Menu label ──
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-          child: Text('Menu',
-              style: AppType.label(size: 10.5, color: c.textMuted)),
-        ),
-
         Expanded(
           child: ListView(
             padding: const EdgeInsets.symmetric(vertical: 4),
@@ -135,48 +265,12 @@ class _DrawerContent extends StatelessWidget {
                 value: state.darkMode,
                 onChanged: state.setDark,
               ),
-              _DrawerSection(label: 'Navigation style'),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Row(
-                  children: NavVariant.values.map((nav) {
-                    final label = switch (nav) {
-                      NavVariant.classic => 'Classic',
-                      NavVariant.pill    => 'Pill',
-                      NavVariant.fab     => 'FAB',
-                    };
-                    final active = state.navVariant == nav;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: GestureDetector(
-                        onTap: () => state.setNavVariant(nav),
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: active ? c.text : c.bgInset,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(label,
-                              style: AppType.body(
-                                  size: 12,
-                                  weight: FontWeight.w600,
-                                  color: active
-                                      ? c.bgElevated
-                                      : c.textMuted)),
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const Divider(),
+              const SizedBox(height: 4),
               _DrawerItem(
                 icon: Icons.settings_outlined,
                 label: 'Settings',
                 onTap: () {
-                  onClose();
+                  widget.onClose();
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -188,7 +282,7 @@ class _DrawerContent extends StatelessWidget {
                 icon: Icons.help_outline,
                 label: 'Help & support',
                 onTap: () {
-                  onClose();
+                  widget.onClose();
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -203,7 +297,7 @@ class _DrawerContent extends StatelessWidget {
         Divider(color: c.border, height: 1),
 
         GestureDetector(
-          onTap: onSignOut,
+          onTap: widget.onSignOut,
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Row(
@@ -340,22 +434,6 @@ class _SubscriptionBadge extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-// ── Drawer section label ────────────────────────────────────────────────────
-class _DrawerSection extends StatelessWidget {
-  final String label;
-  const _DrawerSection({required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-      child: Text(label,
-          style: AppType.label(size: 10.5, color: c.textMuted)),
     );
   }
 }
